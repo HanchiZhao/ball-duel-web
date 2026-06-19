@@ -15,7 +15,15 @@ import {
   ShieldGuardSkill,
   SniperSkill,
   SpellSkill,
-  CatherineSkill
+  CatherineSkill,
+  PoisonFangSkill,
+  SpiderSkill,
+  GasCanSkill,
+  HandSkill,
+  DragonHeirSkill,
+  JadeFootSkill,
+  WaveSkill,
+  CressonSkill
 } from './skills/coreSkills.js';
 
 export const ROLES = {
@@ -83,6 +91,40 @@ export const ROLES = {
     id: 'catherine', name: 'Catherine', zh: '凯瑟琳', hp: 80, speed: BALL_SPEED, color: COLORS.catherinePurple,
     desc: '定身释放 15 次箭雨，最后发射穿云箭。', createSkill: () => new CatherineSkill()
   }
+  ,
+  poisonfang: {
+    id: 'poisonfang', name: 'PoisonFang', zh: '毒牙', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.poisonGreen,
+    desc: '碰墙留下毒牙，敌人碰到会中毒并减速。', createSkill: () => new PoisonFangSkill()
+  },
+  spider: {
+    id: 'spider', name: 'Spider', zh: '蜘蛛', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.spiderPurple,
+    desc: '前 5 秒加速，碰墙生成连接自身的动态蛛丝。', createSkill: () => new SpiderSkill()
+  },
+  gascan: {
+    id: 'gascan', name: 'GasCan', zh: '煤气罐', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.gasOrange,
+    desc: '蓄力变大后爆冲，撞飞并伤害敌人。', createSkill: () => new GasCanSkill()
+  },
+  hand: {
+    id: 'hand', name: 'Hand', zh: '手', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.handSkin,
+    desc: '手掌朝向最近敌人，抓住后大力扔出。', createSkill: () => new HandSkill()
+  },
+  dragon: {
+    id: 'dragon', name: 'DragonHeir', zh: '龙的传人', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.red,
+    desc: '预警轨道后召唤巨龙穿场，每次碰撞 5 伤害。', createSkill: () => new DragonHeirSkill()
+  },
+  jadefoot: {
+    id: 'jadefoot', name: 'JadeFoot', zh: '玉足', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.footPink,
+    desc: '预警后随机落下巨大脚印，范围内 25 伤害。', createSkill: () => new JadeFootSkill()
+  },
+  wave: {
+    id: 'wave', name: 'Wave', zh: '浪花', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.waveBlue,
+    desc: '释放向外扩散的水环，命中后伤害并推开敌人。', createSkill: () => new WaveSkill()
+  },
+  cresson: {
+    id: 'cresson', name: 'Cresson', zh: '克雷松', hp: 110, speed: 0, color: COLORS.cressonPink,
+    desc: '不会移动，周期性闪现留下花圃，60 秒释放终结光波。', createSkill: () => new CressonSkill()
+  }
+
 };
 
 export function roleOptions() {

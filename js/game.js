@@ -14,6 +14,7 @@ export class Game {
     this.balls = [];
     this.projectiles = [];
     this.hazards = [];
+    this.spiderWebKeys = new Set();
     this.floatingTexts = [];
     this.running = false;
     this.paused = false;
@@ -64,6 +65,7 @@ export class Game {
     this.balls = [];
     this.projectiles = [];
     this.hazards = [];
+    this.spiderWebKeys = new Set();
     this.floatingTexts = [];
     this.teamColors.clear();
     this.running = false;

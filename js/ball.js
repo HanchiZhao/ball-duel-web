@@ -24,6 +24,10 @@ export class Ball {
     this.stunUntil = 0;
     this.slowEffects = [];
     this.dotEffects = [];
+    this.stuckPapers = [];
+    this.throwWallDamageUntil = 0;
+    this.throwWallDamage = 0;
+    this.nextThrowWallDamage = 0;
     this.lastMatchTime = 0;
   }
 
@@ -32,6 +36,7 @@ export class Ball {
     for (const slow of this.slowEffects) {
       if (matchTime <= slow.end) mult *= slow.multiplier;
     }
+    mult *= Math.max(0.05, 1 - (this.flowerbedSlow || 0));
     mult *= this.skill.speedMultiplier(this, matchTime);
     return this.baseSpeed * mult;
   }
@@ -46,6 +51,19 @@ export class Ball {
 
   addDot(damage, interval, duration, matchTime, sourceName = 'dot') {
     this.dotEffects.push({ damage, interval, end: matchTime + duration, next: matchTime + interval, sourceName });
+  }
+
+  addStuckPaper(duration, matchTime, incomingDirection) {
+    const dir = safeNormalize(incomingDirection);
+    const angle = Math.atan2(dir.y, dir.x);
+    const side = Vec2.scale(dir, -this.radius * 0.28);
+    this.stuckPapers.push({
+      end: matchTime + duration,
+      angle,
+      offsetX: side.x + (Math.random() - 0.5) * this.radius * 0.45,
+      offsetY: side.y + (Math.random() - 0.5) * this.radius * 0.45,
+      spin: (Math.random() - 0.5) * 0.45
+    });
   }
 
   takeDamage(amount, game, source = null, matchTime = this.lastMatchTime) {
@@ -68,6 +86,7 @@ export class Ball {
   update(game, dt, matchTime) {
     this.lastMatchTime = matchTime;
     this.slowEffects = this.slowEffects.filter(s => matchTime <= s.end);
+    this.stuckPapers = this.stuckPapers.filter(p => matchTime <= p.end);
     this.dotEffects = this.dotEffects.filter(dot => {
       while (matchTime >= dot.next && dot.next <= dot.end && this.hp > 0) {
         dot.next += dot.interval;
@@ -110,6 +129,10 @@ export class Ball {
     }
     if (wall) {
       this.vel = jitterWallBounceVelocity(this.vel, wall);
+      if (matchTime <= this.throwWallDamageUntil && matchTime >= this.nextThrowWallDamage && this.throwWallDamage > 0) {
+        this.nextThrowWallDamage = matchTime + 0.12;
+        this.takeDamage(this.throwWallDamage, game, 'wall crash', matchTime);
+      }
       this.skill.onWallBounce(this, wall, game, matchTime);
     }
   }
@@ -129,6 +152,7 @@ export class Ball {
     ctx.globalAlpha = 1;
 
     this.drawRoleDecoration(ctx);
+    this.drawStuckPapers(ctx);
 
     ctx.font = 'bold 22px Arial, sans-serif';
     ctx.textAlign = 'center';
@@ -168,6 +192,41 @@ export class Ball {
     this.skill.draw(this, game, ctx);
   }
 
+
+
+  drawStuckPapers(ctx) {
+    if (!this.stuckPapers.length) return;
+    ctx.save();
+    for (const paper of this.stuckPapers) {
+      const cx = this.pos.x + paper.offsetX;
+      const cy = this.pos.y + paper.offsetY;
+      const angle = paper.angle + paper.spin;
+      const w = 32, h = 22;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.fillStyle = COLORS.paperWhite;
+      ctx.strokeStyle = COLORS.paperEdge;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(-w / 2, -h / 2, w, h);
+      ctx.fill();
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      for (const y of [-4, 4]) {
+        ctx.beginPath();
+        ctx.moveTo(-8, y);
+        ctx.lineTo(8, y);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(w / 2 - 8, -h / 2);
+      ctx.lineTo(w / 2, -h / 2 + 8);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
 
   drawRoleDecoration(ctx) {
     const id = this.role.id;
@@ -216,6 +275,25 @@ export class Ball {
       ctx.strokeStyle = COLORS.spellCyan;
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(x, y, r * .45, 0, Math.PI * 1.4); ctx.stroke();
+    } else if (id === 'poisonfang') {
+      ctx.fillStyle = COLORS.poisonGreen;
+      ctx.beginPath(); ctx.moveTo(x, y - 18); ctx.lineTo(x - 13, y + 13); ctx.lineTo(x + 13, y + 13); ctx.closePath(); ctx.fill();
+    } else if (id === 'spider') {
+      ctx.strokeStyle = COLORS.spiderPurple; ctx.lineWidth = 3;
+      for (const sx of [-18, -10, 10, 18]) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + sx, y + (sx < 0 ? -20 : 20)); ctx.stroke(); }
+      ctx.fillStyle = COLORS.black; ctx.beginPath(); ctx.arc(x - 7, y - 4, 3, 0, Math.PI * 2); ctx.arc(x + 7, y - 4, 3, 0, Math.PI * 2); ctx.fill();
+    } else if (id === 'gascan') {
+      ctx.strokeStyle = COLORS.black; ctx.lineWidth = 3; ctx.fillStyle = COLORS.gasOrange; ctx.fillRect(x - 12, y - 16, 24, 32); ctx.strokeRect(x - 12, y - 16, 24, 32); ctx.fillStyle = COLORS.black; ctx.fillRect(x - 5, y - 23, 10, 7);
+    } else if (id === 'hand') {
+      ctx.fillStyle = COLORS.handSkin; ctx.beginPath(); ctx.ellipse(x, y + 3, 14, 18, 0, 0, Math.PI * 2); ctx.fill(); for (const fx of [-12, -4, 4, 12]) { ctx.beginPath(); ctx.ellipse(x + fx, y - 14, 4, 10, 0, 0, Math.PI * 2); ctx.fill(); }
+    } else if (id === 'dragon') {
+      ctx.strokeStyle = COLORS.orange; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(x - 16, y + 10); ctx.quadraticCurveTo(x, y - 22, x + 16, y + 10); ctx.stroke(); ctx.fillStyle = COLORS.yellow; ctx.beginPath(); ctx.moveTo(x + 18, y + 8); ctx.lineTo(x + 4, y); ctx.lineTo(x + 14, y - 9); ctx.closePath(); ctx.fill();
+    } else if (id === 'jadefoot') {
+      ctx.fillStyle = COLORS.footPink; ctx.beginPath(); ctx.ellipse(x, y + 3, 12, 19, 0, 0, Math.PI * 2); ctx.fill(); for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(x + i * 6, y - 16, 3, 0, Math.PI * 2); ctx.fill(); }
+    } else if (id === 'wave') {
+      ctx.strokeStyle = COLORS.waveBlue; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, 15, 0.1, Math.PI * 1.5); ctx.stroke(); ctx.beginPath(); ctx.arc(x, y, 23, 1.0, Math.PI * 1.85); ctx.stroke();
+    } else if (id === 'cresson') {
+      ctx.fillStyle = COLORS.cressonPink; for (let i = 0; i < 6; i++) { const a = i * Math.PI * 2 / 6; ctx.beginPath(); ctx.arc(x + Math.cos(a) * 11, y + Math.sin(a) * 11, 8, 0, Math.PI * 2); ctx.fill(); } ctx.fillStyle = COLORS.yellow; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
     } else if (id === 'catherine') {
       ctx.strokeStyle = COLORS.arrowGold;
       ctx.lineWidth = 4;

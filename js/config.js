@@ -60,5 +60,13 @@ export const COLORS = {
   arrowGold: '#f5cd5a',
   arrowRainBlue: '#87beff',
   spellPurple: '#b973ff',
-  spellCyan: '#7defff'
+  spellCyan: '#7defff',
+  spiderPurple: '#b482ff',
+  handSkin: '#ebbe91',
+  footPink: '#ff9bd7',
+  footWarn: '#ffdff5',
+  cressonPink: '#ff69d2',
+  flowerPink: '#ff82dc',
+  waveBlue: '#50beff',
+  darkRed: '#911423',
 };
