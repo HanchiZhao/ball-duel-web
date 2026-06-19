@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ball Duel Web | 小球乱斗网页版</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero-card">
+      <div>
+        <p class="eyebrow">HTML5 Canvas · GitHub Pages Ready</p>
+        <h1>Ball Duel Web 小球乱斗</h1>
+        <p class="subtitle">第一轮网页版：自由混战、多人阵营、队友免伤、回血飘绿字，以及 7 个核心角色。</p>
+      </div>
+      <div class="status-pill" id="engineStatus">Ready</div>
+    </section>
+
+    <section class="layout">
+      <aside class="control-card">
+        <h2>开局设置</h2>
+
+        <label class="field">
+          <span>模式</span>
+          <select id="modeSelect">
+            <option value="ffa">自由混战 Free-for-all</option>
+            <option value="teams">多人阵营 Team Battle</option>
+          </select>
+        </label>
+
+        <div id="ffaPanel" class="mode-panel">
+          <label class="field">
+            <span>小球数量</span>
+            <input id="ffaCount" type="number" min="2" max="12" value="4" />
+          </label>
+          <div id="ffaRoles" class="role-list"></div>
+        </div>
+
+        <div id="teamPanel" class="mode-panel hidden">
+          <label class="field">
+            <span>阵营数量</span>
+            <input id="teamCount" type="number" min="2" max="6" value="2" />
+          </label>
+          <div id="teamEditors" class="team-editors"></div>
+        </div>
+
+        <div class="button-row">
+          <button id="startBtn" class="primary">开始游戏</button>
+          <button id="pauseBtn">暂停</button>
+          <button id="resetBtn">重置</button>
+        </div>
+
+        <div class="help-box">
+          <strong>本轮已迁移角色</strong>
+          <p>普通球、重锤、吸血鬼、华佗、幽灵、丝带、冰壶。</p>
+          <p>所有小球自动移动，手机打开也能玩；不需要键盘操作。</p>
+        </div>
+      </aside>
+
+      <section class="game-card">
+        <canvas id="gameCanvas" width="980" height="760" aria-label="Ball Duel game canvas"></canvas>
+        <div class="game-footer">
+          <div id="winnerText">请选择模式和角色，然后开始。</div>
+          <div id="timeText">00.0s</div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
