@@ -12,16 +12,28 @@
       <div>
         <p class="eyebrow">HTML5 Canvas · GitHub Pages Ready</p>
         <h1>Ball Duel Web 小球乱斗</h1>
-        <p class="subtitle">第二轮网页版：新增投射物/远程角色，优化血量数字显示，继续支持多人阵营和队友免伤。</p>
+        <p class="subtitle">第五轮打磨版：32 个角色、多人阵营、主题特效、随机阵容、一键开始、重开同阵容。</p>
       </div>
       <div class="status-pill" id="engineStatus">Ready</div>
     </section>
 
     <section class="layout">
       <aside class="control-card">
-        <h2>开局设置</h2>
+        <div class="panel-heading">
+          <div>
+            <h2>开局设置</h2>
+            <p>选择模式、阵营和角色；也可以一键随机开战。</p>
+          </div>
+          <span class="role-count" id="roleCountText">32 roles</span>
+        </div>
 
-        <label class="field">
+        <div class="quick-actions">
+          <button id="quickStartBtn" class="primary big">一键开始</button>
+          <button id="randomBtn">随机阵容</button>
+          <button id="sameBtn">重开同阵容</button>
+        </div>
+
+        <label class="field compact-field">
           <span>模式</span>
           <select id="modeSelect">
             <option value="ffa">自由混战 Free-for-all</option>
@@ -30,15 +42,15 @@
         </label>
 
         <div id="ffaPanel" class="mode-panel">
-          <label class="field">
+          <label class="field compact-field">
             <span>小球数量</span>
-            <input id="ffaCount" type="number" min="2" max="12" value="4" />
+            <input id="ffaCount" type="number" min="2" max="12" value="6" />
           </label>
           <div id="ffaRoles" class="role-list"></div>
         </div>
 
         <div id="teamPanel" class="mode-panel hidden">
-          <label class="field">
+          <label class="field compact-field">
             <span>阵营数量</span>
             <input id="teamCount" type="number" min="2" max="6" value="2" />
           </label>
@@ -46,15 +58,15 @@
         </div>
 
         <div class="button-row">
-          <button id="startBtn" class="primary">开始游戏</button>
+          <button id="startBtn" class="primary">开始当前阵容</button>
           <button id="pauseBtn">暂停</button>
-          <button id="resetBtn">重置</button>
+          <button id="resetBtn">清空场地</button>
         </div>
 
         <div class="help-box">
-          <strong>本轮已迁移角色</strong>
-          <p>普通球、重锤、吸血鬼、纸片人、忍者、黑洞、水果射手、碰瓷者、华佗、盾卫、狙击手、幽灵、丝带、冰壶、咒语、凯瑟琳。</p>
-          <p>所有小球自动移动，手机打开也能玩；不需要键盘操作。</p>
+          <strong>本轮优化</strong>
+          <p>新增主题化冲击、回血、撞墙粒子；特效绘制在小球下层，尽量不遮挡血量数字。</p>
+          <p>UI 增加角色卡片说明、随机阵容、一键开始、重开同阵容。手机端仍可直接打开网页游玩。</p>
         </div>
       </aside>
 
