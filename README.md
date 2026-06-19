@@ -1,6 +1,6 @@
-# Ball Duel Web 小球乱斗网页版（第一轮）
+# Ball Duel Web 小球乱斗网页版（第二轮）
 
-这是第一轮网页版迁移：HTML + CSS + JavaScript + Canvas，无需 Python、无需 pygame、无需后端。
+这是第二轮网页版迁移：HTML + CSS + JavaScript + Canvas，无需 Python、无需 pygame、无需后端。
 
 ## 已包含功能
 
@@ -8,21 +8,30 @@
 - 多人阵营模式
 - 队友免伤
 - 自动移动、碰墙反弹、小球碰撞
-- HP 显示
+- HP 显示，中心血量数字已放大
 - 红色掉血飘字
 - 绿色回血飘字
 - 胜负判定
 - 手机浏览器可打开游玩
 
-## 第一轮已迁移角色
+## 第二轮已迁移角色
 
 - 普通球 Normal
 - 重锤 Hammer
 - 吸血鬼 Vampire
+- 纸片人 Paperman
+- 忍者 Ninja
+- 黑洞 BlackHole
+- 水果射手 FruitShooter
+- 碰瓷者 Pengci
 - 华佗 Huatuo
+- 盾卫 ShieldGuard
+- 狙击手 Sniper
 - 幽灵 Ghost
 - 丝带 Ribbon
 - 冰壶 IceCurling
+- 咒语 Spell
+- 凯瑟琳 Catherine
 
 ## 本地运行
 

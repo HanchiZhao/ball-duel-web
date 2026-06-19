@@ -6,79 +6,82 @@ import {
   HuatuoSkill,
   GhostSkill,
   RibbonSkill,
-  IceCurlingSkill
+  IceCurlingSkill,
+  PapermanSkill,
+  NinjaSkill,
+  BlackHoleSkill,
+  FruitShooterSkill,
+  PengciSkill,
+  ShieldGuardSkill,
+  SniperSkill,
+  SpellSkill,
+  CatherineSkill
 } from './skills/coreSkills.js';
 
 export const ROLES = {
   normal: {
-    id: 'normal',
-    name: 'Normal',
-    zh: '普通球',
-    hp: DEFAULT_HP,
-    speed: BALL_SPEED,
-    color: COLORS.cyan,
-    desc: '普通身体碰撞造成 5 伤害。',
-    createSkill: () => new NormalSkill()
+    id: 'normal', name: 'Normal', zh: '普通球', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.cyan,
+    desc: '普通身体碰撞造成 5 伤害。', createSkill: () => new NormalSkill()
   },
   hammer: {
-    id: 'hammer',
-    name: 'Hammer',
-    zh: '重锤',
-    hp: DEFAULT_HP,
-    speed: BALL_SPEED,
-    color: COLORS.yellow,
-    desc: '旋转重锤命中造成 8 伤害。',
-    createSkill: () => new HammerSkill()
+    id: 'hammer', name: 'Hammer', zh: '重锤', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.yellow,
+    desc: '旋转重锤命中造成 8 伤害。', createSkill: () => new HammerSkill()
   },
   vampire: {
-    id: 'vampire',
-    name: 'Vampire',
-    zh: '吸血鬼',
-    hp: DEFAULT_HP,
-    speed: BALL_SPEED,
-    color: '#941626',
-    desc: '碰撞后吸血，目标掉血，自身回血。',
-    createSkill: () => new VampireSkill()
+    id: 'vampire', name: 'Vampire', zh: '吸血鬼', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.vampire,
+    desc: '碰撞后吸血，目标掉血，自身回血。', createSkill: () => new VampireSkill()
+  },
+  paperman: {
+    id: 'paperman', name: 'Paperman', zh: '纸片人', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.paperWhite,
+    desc: '每 2 秒发射纸片，命中后流血并减速 4 秒。', createSkill: () => new PapermanSkill()
+  },
+  ninja: {
+    id: 'ninja', name: 'Ninja', zh: '忍者', hp: DEFAULT_HP, speed: BALL_SPEED * 1.13, color: COLORS.ninjaGreen,
+    desc: '高速小球，周期性随机方向投掷逐渐增多的手里剑。', createSkill: () => new NinjaSkill()
+  },
+  blackhole: {
+    id: 'blackhole', name: 'BlackHole', zh: '黑洞', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.voidPurple,
+    desc: '发射导弹，命中或撞墙后生成黑洞吸引并持续伤害敌人。', createSkill: () => new BlackHoleSkill()
+  },
+  fruitshooter: {
+    id: 'fruitshooter', name: 'FruitShooter', zh: '水果射手', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.appleRed,
+    desc: '每轮向最近敌人连射 3 个随机水果。', createSkill: () => new FruitShooterSkill()
+  },
+  pengci: {
+    id: 'pengci', name: 'Pengci', zh: '碰瓷者', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.pengciBlue,
+    desc: '高速花瓶叠碰瓷印记，身体碰撞兑现指数伤害。', createSkill: () => new PengciSkill()
   },
   huatuo: {
-    id: 'huatuo',
-    name: 'Huatuo',
-    zh: '华佗',
-    hp: DEFAULT_HP,
-    speed: BALL_SPEED,
-    color: COLORS.huatuo,
-    desc: '发射治疗球，治疗自己和队友，伤害敌人。',
-    createSkill: () => new HuatuoSkill()
+    id: 'huatuo', name: 'Huatuo', zh: '华佗', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.huatuo,
+    desc: '发射治疗球，治疗自己和队友，伤害敌人。', createSkill: () => new HuatuoSkill()
+  },
+  shieldguard: {
+    id: 'shieldguard', name: 'ShieldGuard', zh: '盾卫', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.shieldSteel,
+    desc: '初始 5 层护盾抵挡伤害，周期性恢复并投掷盾牌。', createSkill: () => new ShieldGuardSkill()
+  },
+  sniper: {
+    id: 'sniper', name: 'Sniper', zh: '狙击手', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.sniperBrown,
+    desc: '每 1.5 秒装填，满 5 层后发射 50 伤害高速子弹。', createSkill: () => new SniperSkill()
   },
   ghost: {
-    id: 'ghost',
-    name: 'Ghost',
-    zh: '幽灵',
-    hp: DEFAULT_HP,
-    speed: BALL_SPEED,
-    color: COLORS.ghost,
-    desc: '每 3 秒切换虚化，虚化免疫、+100% 速度、接触 8 伤害。',
-    createSkill: () => new GhostSkill()
+    id: 'ghost', name: 'Ghost', zh: '幽灵', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.ghost,
+    desc: '每 3 秒切换虚化，虚化免疫、+100% 速度、接触 8 伤害。', createSkill: () => new GhostSkill()
   },
   ribbon: {
-    id: 'ribbon',
-    name: 'Ribbon',
-    zh: '丝带',
-    hp: DEFAULT_HP,
-    speed: BALL_SPEED * 1.1,
-    color: COLORS.ribbonRed,
-    desc: '速度 +10%，三条超长丝带刮伤敌人。',
-    createSkill: () => new RibbonSkill()
+    id: 'ribbon', name: 'Ribbon', zh: '丝带', hp: DEFAULT_HP, speed: BALL_SPEED * 1.1, color: COLORS.ribbonRed,
+    desc: '速度 +10%，三条超长丝带刮伤敌人。', createSkill: () => new RibbonSkill()
   },
   icecurling: {
-    id: 'icecurling',
-    name: 'IceCurling',
-    zh: '冰壶',
-    hp: DEFAULT_HP,
-    speed: BALL_SPEED,
-    color: COLORS.ice,
-    desc: '周期性定身全场，按身体触碰到的最高区域结算伤害。',
-    createSkill: () => new IceCurlingSkill()
+    id: 'icecurling', name: 'IceCurling', zh: '冰壶', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.ice,
+    desc: '周期性定身全场，按身体触碰到的最高区域结算伤害。', createSkill: () => new IceCurlingSkill()
+  },
+  spell: {
+    id: 'spell', name: 'Spell', zh: '咒语', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.spellPurple,
+    desc: '音波造成伤害、眩晕和咒印，5 层后锁链吸血。', createSkill: () => new SpellSkill()
+  },
+  catherine: {
+    id: 'catherine', name: 'Catherine', zh: '凯瑟琳', hp: 80, speed: BALL_SPEED, color: COLORS.catherinePurple,
+    desc: '定身释放 15 次箭雨，最后发射穿云箭。', createSkill: () => new CatherineSkill()
   }
 };
 
