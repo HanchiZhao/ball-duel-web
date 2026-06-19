@@ -77,6 +77,21 @@ export class Game {
     this.draw();
   }
 
+  spawnRole(roleId, pos, label, teamId = null, overrides = {}) {
+    const role = ROLES[roleId] || ROLES.normal;
+    const ball = new Ball(role, pos.clone(), label, teamId);
+    if (overrides.hp != null) { ball.hp = overrides.hp; ball.maxHp = overrides.hp; }
+    if (overrides.radius != null) ball.radius = overrides.radius;
+    if (overrides.speed != null) { ball.baseSpeed = overrides.speed; ball.vel = safeNormalize(ball.vel).scale(overrides.speed); }
+    if (overrides.color != null) ball.color = overrides.color;
+    if (overrides.level != null && ball.skill) ball.skill.level = overrides.level;
+    if (overrides.vel) ball.vel = overrides.vel.clone();
+    ball.pos.x = Math.max(this.arena.left + ball.radius, Math.min(this.arena.right - ball.radius, ball.pos.x));
+    ball.pos.y = Math.max(this.arena.top + ball.radius, Math.min(this.arena.bottom - ball.radius, ball.pos.y));
+    this.balls.push(ball);
+    return ball;
+  }
+
   spawnPoints(n) {
     const center = new Vec2((this.arena.left + this.arena.right) / 2, (this.arena.top + this.arena.bottom) / 2);
     const ring = ARENA_SIZE * 0.33;

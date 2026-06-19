@@ -23,7 +23,15 @@ import {
   DragonHeirSkill,
   JadeFootSkill,
   WaveSkill,
-  CressonSkill
+  CressonSkill,
+  SlimeSkill,
+  KingSkill,
+  GuardSkill,
+  LiBaiSkill,
+  ChiFoodGodSkill,
+  AnnoyingOrangeSkill,
+  QuicksilverSkill,
+  SwordSaintSkill
 } from './skills/coreSkills.js';
 
 export const ROLES = {
@@ -123,6 +131,38 @@ export const ROLES = {
   cresson: {
     id: 'cresson', name: 'Cresson', zh: '克雷松', hp: 110, speed: 0, color: COLORS.cressonPink,
     desc: '不会移动，周期性闪现留下花圃，60 秒释放终结光波。', createSkill: () => new CressonSkill()
+  },
+  slime: {
+    id: 'slime', name: 'Slime', zh: '史莱姆', hp: 30, speed: BALL_SPEED * 0.95, color: COLORS.slimeGreen,
+    desc: '死亡后分裂成 3 个更小史莱姆，最后阶段碰撞 3 伤害。', createSkill: () => new SlimeSkill(0)
+  },
+  king: {
+    id: 'king', name: 'King', zh: '国王', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.kingGold,
+    desc: '开局召唤 2 个护卫，此后每 7.5 秒召唤 1 个护卫。', createSkill: () => new KingSkill()
+  },
+  guard: {
+    id: 'guard', name: 'Guard', zh: '护卫', hp: 30, speed: BALL_SPEED * 0.92, color: COLORS.guardNavy,
+    desc: '30 HP 护卫，身体碰撞造成 2 伤害。', createSkill: () => new GuardSkill()
+  },
+  libai: {
+    id: 'libai', name: 'LiBai', zh: '李白', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.libaiBlue,
+    desc: '周期性喝酒回血，累计受伤 30 后进入 3 秒狂暴。', createSkill: () => new LiBaiSkill()
+  },
+  chishishen: {
+    id: 'chishishen', name: 'ChiFoodGod', zh: '赤食神', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.chishiRed,
+    desc: '吃专属粪碗回血并叠伤害，周期性释放屁圈。', createSkill: () => new ChiFoodGodSkill()
+  },
+  annoyingorange: {
+    id: 'annoyingorange', name: 'AnnoyingOrange', zh: '烦人的橘子', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.annoyingOrange,
+    desc: '高频发射乱码弹，每发造成 1 伤害。', createSkill: () => new AnnoyingOrangeSkill()
+  },
+  quicksilver: {
+    id: 'quicksilver', name: 'Quicksilver', zh: '快银', hp: DEFAULT_HP, speed: BALL_SPEED * 1.8, color: COLORS.quicksilver,
+    desc: '180% 速度，绑定敌人并拖向墙壁碰撞结算伤害。', createSkill: () => new QuicksilverSkill()
+  },
+  swordsman: {
+    id: 'swordsman', name: 'SwordSaint', zh: '剑圣', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.swordSilver,
+    desc: '升空锁定后落剑，随后释放回旋斩。', createSkill: () => new SwordSaintSkill()
   }
 
 };

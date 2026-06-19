@@ -1,7 +1,7 @@
 import { Skill } from '../skillBase.js';
 import { Projectile } from '../projectileBase.js';
 import { Hazard } from '../hazardBase.js';
-import { ARENA_SIZE, BALL_RADIUS, COLORS, NORMAL_BODY_COOLDOWN, NORMAL_BODY_DAMAGE } from '../config.js';
+import { ARENA_SIZE, BALL_RADIUS, BALL_SPEED, COLORS, NORMAL_BODY_COOLDOWN, NORMAL_BODY_DAMAGE } from '../config.js';
 import { Vec2, randomUnitVector, safeNormalize } from '../vector.js';
 import { circleHit, distancePointToSegment, randomPointInRect, clamp } from '../utils.js';
 
@@ -1052,5 +1052,371 @@ export class CressonSkill extends Skill {
     this.teleports += 1;
     game.hazards.push(new FlowerbedHazardWeb(owner, owner.pos));
     owner.pos = randomPointInRect(game.arena, BALL_RADIUS + 10);
+  }
+}
+
+// ============================================================
+// Round 4 summon / growth / control roles
+// ============================================================
+
+export class SlimeSkill extends Skill {
+  constructor(level = 0) {
+    super();
+    this.level = level;
+    this.splitDone = false;
+    this.bodyCooldown = NORMAL_BODY_COOLDOWN;
+    this.lastHit = new Map();
+  }
+  stats() {
+    return [
+      { hp: 30, radius: 30, damage: 5 },
+      { hp: 10, radius: 22, damage: 5 },
+      { hp: 5, radius: 16, damage: 3 }
+    ][this.level] || { hp: 5, radius: 16, damage: 3 };
+  }
+  onBodyCollision(owner, other, game, matchTime) {
+    const next = this.lastHit.get(other.uid) ?? 0;
+    if (matchTime < next) return false;
+    this.lastHit.set(other.uid, matchTime + this.bodyCooldown);
+    const dmg = this.stats().damage;
+    other.takeDamage(dmg, game, owner, matchTime);
+    const knock = safeNormalize(Vec2.sub(other.pos, owner.pos));
+    other.vel = knock.scale(Math.max(other.currentSpeed(matchTime), 520));
+    other.externalForceUntil = matchTime + 0.22;
+    return true;
+  }
+  onDeath(owner, game, matchTime) {
+    if (this.splitDone || this.level >= 2) return;
+    this.splitDone = true;
+    const nextLevel = this.level + 1;
+    const nextStats = [
+      { hp: 30, radius: 30 },
+      { hp: 10, radius: 22 },
+      { hp: 5, radius: 16 }
+    ][nextLevel];
+    for (let i = 0; i < 3; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dir = new Vec2(Math.cos(angle), Math.sin(angle));
+      const pos = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + nextStats.radius + 4));
+      const child = game.spawnRole('slime', pos, `${owner.label}s${i + 1}`, owner.teamId, {
+        hp: nextStats.hp,
+        radius: nextStats.radius,
+        speed: BALL_SPEED * 0.95,
+        level: nextLevel,
+        vel: dir.scale(BALL_SPEED * 0.95)
+      });
+      child.skill.level = nextLevel;
+    }
+  }
+}
+
+export class GuardSkill extends Skill {
+  constructor() {
+    super();
+    this.damage = 2;
+    this.cooldown = NORMAL_BODY_COOLDOWN;
+    this.lastHit = new Map();
+  }
+  onBodyCollision(owner, other, game, matchTime) {
+    const next = this.lastHit.get(other.uid) ?? 0;
+    if (matchTime < next) return false;
+    this.lastHit.set(other.uid, matchTime + this.cooldown);
+    other.takeDamage(this.damage, game, owner, matchTime);
+    const knock = safeNormalize(Vec2.sub(other.pos, owner.pos));
+    other.vel = knock.scale(Math.max(other.currentSpeed(matchTime), 520));
+    other.externalForceUntil = matchTime + 0.22;
+    return true;
+  }
+}
+
+export class KingSkill extends Skill {
+  constructor() {
+    super();
+    this.damage = 3;
+    this.cooldown = NORMAL_BODY_COOLDOWN;
+    this.lastHit = new Map();
+    this.initialSummoned = false;
+    this.nextSummon = 7.5;
+    this.guardCount = 0;
+    this.guards = [];
+  }
+  summonGuard(owner, game, matchTime) {
+    this.guardCount += 1;
+    const dir = randomUnitVector();
+    const pos = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 30));
+    const guard = game.spawnRole('guard', pos, `${owner.label}G${this.guardCount}`, owner.teamId, {
+      hp: 30,
+      radius: 24,
+      speed: BALL_SPEED * 0.92,
+      vel: dir.scale(BALL_SPEED * 0.92)
+    });
+    this.guards.push(guard);
+    return guard;
+  }
+  update(owner, game, dt, matchTime) {
+    this.guards = this.guards.filter(g => g.hp > 0);
+    if (!this.initialSummoned) {
+      this.initialSummoned = true;
+      this.summonGuard(owner, game, matchTime);
+      this.summonGuard(owner, game, matchTime);
+      this.nextSummon = matchTime + 7.5;
+    }
+    if (matchTime >= this.nextSummon) {
+      this.nextSummon = matchTime + 7.5;
+      this.summonGuard(owner, game, matchTime);
+    }
+  }
+  onBodyCollision(owner, other, game, matchTime) {
+    const next = this.lastHit.get(other.uid) ?? 0;
+    if (matchTime < next) return false;
+    this.lastHit.set(other.uid, matchTime + this.cooldown);
+    other.takeDamage(this.damage, game, owner, matchTime);
+    return true;
+  }
+  onDeath(owner, game, matchTime) {
+    for (const guard of this.guards) {
+      if (guard.hp > 0) {
+        guard.hp = 0;
+        game.addFloatingText(guard.pos, '-KO', 'damage');
+      }
+    }
+  }
+  draw(owner, game, ctx) {
+    ctx.save();
+    ctx.fillStyle = COLORS.kingGold;
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`G:${this.guards.filter(g => g.hp > 0).length}`, owner.pos.x, owner.pos.y - owner.radius - 16);
+    ctx.restore();
+  }
+}
+
+export class LiBaiSkill extends Skill {
+  constructor() {
+    super();
+    this.nextDrink = 1.0;
+    this.drinkCooldown = 6.0;
+    this.damageBucket = 0;
+    this.rageEnd = 0;
+    this.lastHit = new Map();
+  }
+  update(owner, game, dt, matchTime) {
+    if (matchTime >= this.nextDrink) {
+      this.nextDrink = matchTime + this.drinkCooldown;
+      owner.heal(10, game);
+    }
+  }
+  onDamageTaken(owner, amount, source, game, matchTime) {
+    this.damageBucket += amount;
+    while (this.damageBucket >= 30) {
+      this.damageBucket -= 30;
+      this.rageEnd = Math.max(this.rageEnd, matchTime + 3.0);
+    }
+  }
+  speedMultiplier(owner, matchTime) { return matchTime < this.rageEnd ? 3.0 : 1.0; }
+  onBodyCollision(owner, other, game, matchTime) {
+    if (matchTime >= this.rageEnd) return false;
+    const next = this.lastHit.get(other.uid) ?? 0;
+    if (matchTime < next) return false;
+    this.lastHit.set(other.uid, matchTime + NORMAL_BODY_COOLDOWN);
+    other.takeDamage(8, game, owner, matchTime);
+    const knock = safeNormalize(Vec2.sub(other.pos, owner.pos));
+    other.vel = knock.scale(980);
+    other.externalForceUntil = matchTime + 0.32;
+    return true;
+  }
+  draw(owner, game, ctx) {
+    if (owner.lastMatchTime >= this.rageEnd) return;
+    ctx.save();
+    ctx.strokeStyle = COLORS.winePurple;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+class PoopBowlHazardWeb extends Hazard {
+  constructor(owner, pos) { super(owner); this.pos = pos.clone(); this.radius = 20; this.bob = Math.random() * Math.PI * 2; }
+  update(game, dt, matchTime) {
+    this.bob += dt * 4.5;
+    if (!this.owner || this.owner.hp <= 0) { this.alive = false; return; }
+    if (circleHit(this.pos, this.radius, this.owner.pos, this.owner.radius)) {
+      this.alive = false;
+      if (this.owner.skill instanceof ChiFoodGodSkill) {
+        this.owner.skill.eaten += 1;
+        this.owner.skill.damageBonus += 1;
+        this.owner.heal(6, game);
+      }
+    }
+  }
+  draw(ctx) {
+    const y = this.pos.y + Math.sin(this.bob) * 3;
+    ctx.save();
+    ctx.fillStyle = COLORS.bowlCream; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(this.pos.x, y + 9, 22, 10, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = COLORS.poopBrown;
+    ctx.beginPath(); ctx.arc(this.pos.x - 8, y - 2, 8, 0, Math.PI * 2); ctx.arc(this.pos.x + 7, y - 3, 8, 0, Math.PI * 2); ctx.arc(this.pos.x, y - 13, 7, 0, Math.PI * 2); ctx.arc(this.pos.x, y - 22, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+class FartRingHazardWeb extends Hazard {
+  constructor(owner, pos, radius, damage, matchTime) { super(owner); this.pos = pos.clone(); this.radius = radius; this.damage = damage; this.created = matchTime; this.end = matchTime + 0.65; this.hit = new Set(); this.drawTime = matchTime; }
+  update(game, dt, matchTime) {
+    this.drawTime = matchTime;
+    if (matchTime >= this.end || !this.owner || this.owner.hp <= 0) { this.alive = false; return; }
+    for (const ball of game.balls) {
+      if (ball.hp <= 0 || game.areAllies(ball, this.owner) || this.hit.has(ball.uid)) continue;
+      if (!circleHit(this.pos, this.radius, ball.pos, ball.radius)) continue;
+      this.hit.add(ball.uid);
+      ball.takeDamage(this.damage, game, this.owner, matchTime);
+      ball.addSlow(0.7, 2.0, matchTime);
+    }
+  }
+  draw(ctx) {
+    const progress = clamp((this.drawTime - this.created) / 0.65, 0, 1);
+    const r = Math.max(8, this.radius * (0.35 + 0.65 * progress));
+    ctx.save(); ctx.strokeStyle = COLORS.fartGreen; ctx.lineWidth = 12; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = COLORS.fartDark; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, Math.max(2, r - 22), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+  }
+}
+
+export class ChiFoodGodSkill extends Skill {
+  constructor() {
+    super(); this.spawnedBowls = false; this.eaten = 0; this.damageBonus = 0; this.nextFart = 1.0; this.fartCooldown = 2.0; this.lastHit = new Map();
+  }
+  update(owner, game, dt, matchTime) {
+    if (!this.spawnedBowls) {
+      this.spawnedBowls = true;
+      for (let i = 0; i < 5; i++) game.hazards.push(new PoopBowlHazardWeb(owner, randomPointInRect(game.arena, BALL_RADIUS + 30)));
+    }
+    if (matchTime >= this.nextFart) {
+      this.nextFart = matchTime + this.fartCooldown;
+      game.hazards.push(new FartRingHazardWeb(owner, owner.pos, 125, 1 + this.damageBonus, matchTime));
+    }
+  }
+  onBodyCollision(owner, other, game, matchTime) {
+    const next = this.lastHit.get(other.uid) ?? 0; if (matchTime < next) return false;
+    this.lastHit.set(other.uid, matchTime + NORMAL_BODY_COOLDOWN);
+    other.takeDamage(2 + this.damageBonus, game, owner, matchTime);
+    return true;
+  }
+  draw(owner, game, ctx) {
+    ctx.save(); ctx.fillStyle = COLORS.white; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillText(`碗×${this.eaten}`, owner.pos.x, owner.pos.y - owner.radius - 15); ctx.restore();
+  }
+}
+
+class GlitchTextProjectile extends Projectile {
+  constructor(owner, pos, direction) { super(owner); this.pos = pos.clone(); this.vel = safeNormalize(direction).scale(245); this.radius = 12; this.text = ['@#%', 'LOL', '???', '烦'][Math.floor(Math.random() * 4)]; }
+  update(game, dt, matchTime) {
+    this.pos.add(Vec2.scale(this.vel, dt));
+    if (this.pos.x < game.arena.left - 40 || this.pos.x > game.arena.right + 40 || this.pos.y < game.arena.top - 40 || this.pos.y > game.arena.bottom + 40) { this.alive = false; return; }
+    for (const ball of game.balls) {
+      if (ball.hp <= 0 || game.areAllies(ball, this.owner)) continue;
+      if (!circleHit(this.pos, this.radius, ball.pos, ball.radius)) continue;
+      ball.takeDamage(1, game, this.owner, matchTime); this.alive = false; return;
+    }
+  }
+  draw(ctx) { ctx.save(); ctx.fillStyle = COLORS.glitchPurple; ctx.strokeStyle = COLORS.black; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.strokeText(this.text, this.pos.x, this.pos.y); ctx.fillText(this.text, this.pos.x, this.pos.y); ctx.restore(); }
+}
+
+export class AnnoyingOrangeSkill extends Skill {
+  constructor() { super(); this.nextFire = 0.4; this.cooldown = 0.2; }
+  update(owner, game, dt, matchTime) {
+    if (matchTime < this.nextFire) return;
+    const enemy = game.nearestEnemy(owner); if (!enemy) return;
+    this.nextFire = matchTime + this.cooldown;
+    const dir = safeNormalize(Vec2.sub(enemy.pos, owner.pos));
+    const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 14));
+    game.projectiles.push(new GlitchTextProjectile(owner, start, dir));
+  }
+}
+
+export class QuicksilverSkill extends Skill {
+  constructor() { super(); this.bound = null; this.cooldownUntil = 0; this.bindDir = new Vec2(1, 0); this.startPos = null; }
+  onBodyCollision(owner, other, game, matchTime) {
+    if (this.bound || matchTime < this.cooldownUntil || other.heldBy) return false;
+    this.bound = other; this.bindDir = safeNormalize(owner.vel); this.startPos = owner.pos.clone();
+    other.heldBy = owner; other.addStun(5.0, matchTime); owner.externalForceUntil = matchTime + 10;
+    return true;
+  }
+  update(owner, game, dt, matchTime) {
+    if (!this.bound) return;
+    if (this.bound.hp <= 0 || owner.hp <= 0) { this.release(owner, matchTime); return; }
+    owner.vel = this.bindDir.clone().scale(owner.currentSpeed(matchTime));
+    const gap = owner.radius + this.bound.radius + 3;
+    this.bound.pos = Vec2.add(owner.pos, Vec2.scale(this.bindDir, gap));
+    this.bound.vel = owner.vel.clone();
+    this.bound.externalForceUntil = matchTime + 0.2;
+  }
+  release(owner, matchTime) {
+    if (!this.bound) return;
+    this.bound.heldBy = null;
+    this.bound = null;
+    this.cooldownUntil = matchTime + 2.0;
+  }
+  onWallBounce(owner, wall, game, matchTime) {
+    if (!this.bound) return;
+    const moved = owner.pos.distanceTo(this.startPos || owner.pos);
+    const ratio = moved / (ARENA_SIZE / 2);
+    const speedRatio = Math.max(1, owner.currentSpeed(matchTime) / BALL_SPEED);
+    const damage = Math.max(1, ratio * speedRatio * 10);
+    const target = this.bound;
+    target.takeDamage(damage, game, owner, matchTime);
+    target.heldBy = null;
+    target.vel = randomUnitVector().scale(1350);
+    target.externalForceUntil = matchTime + 0.75;
+    this.bound = null;
+    this.cooldownUntil = matchTime + 2.0;
+    owner.vel = safeNormalize(owner.vel).scale(Math.max(BALL_SPEED * 1.35, owner.currentSpeed(matchTime)));
+    owner.externalForceUntil = matchTime + 0.35;
+  }
+  draw(owner, game, ctx) {
+    if (!this.bound) return;
+    ctx.save(); ctx.strokeStyle = COLORS.quicksilverBlue; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(owner.pos.x, owner.pos.y); ctx.lineTo(this.bound.pos.x, this.bound.pos.y); ctx.stroke(); ctx.restore();
+  }
+}
+
+export class SwordSaintSkill extends Skill {
+  constructor() { super(); this.state = 'idle'; this.nextStart = 4.0; this.lockCenter = null; this.stateEnd = 0; this.firstDone = false; this.secondDone = false; this.slashRadius = Math.floor(BALL_RADIUS * 4.8); }
+  airborne(matchTime) { return this.state === 'lock' || this.state === 'charge'; }
+  isUntargetable(owner, matchTime) { return this.airborne(matchTime); }
+  ignoresPhysicalCollision(owner, other, matchTime) { return this.airborne(matchTime); }
+  modifyIncomingDamage(owner, amount, source, game, matchTime) { return this.airborne(matchTime) ? 0 : amount; }
+  start(owner, game, matchTime) {
+    const enemy = game.nearestEnemy(owner);
+    this.lockCenter = enemy ? enemy.pos.clone() : randomPointInRect(game.arena, BALL_RADIUS + this.slashRadius * .5);
+    this.state = 'lock'; this.stateEnd = matchTime + 1.0; owner.addStun(1.6, matchTime);
+  }
+  update(owner, game, dt, matchTime) {
+    if (this.state === 'idle') { if (matchTime >= this.nextStart) this.start(owner, game, matchTime); return; }
+    if (this.state === 'lock' && matchTime >= this.stateEnd) { this.state = 'charge'; this.stateEnd = matchTime + 0.5; return; }
+    if (this.state === 'charge' && matchTime >= this.stateEnd) { owner.pos = this.lockCenter.clone(); this.state = 'slash'; this.stateEnd = matchTime + 1.15; this.firstDone = false; this.secondDone = false; }
+    if (this.state === 'slash') {
+      if (!this.firstDone) { this.firstDone = true; this.hit(owner, game, matchTime, 20); }
+      if (!this.secondDone && matchTime >= this.stateEnd - 0.65) { this.secondDone = true; this.hit(owner, game, matchTime, 20); }
+      if (matchTime >= this.stateEnd) { this.state = 'idle'; this.nextStart = matchTime + 4.0; owner.vel = randomUnitVector().scale(owner.baseSpeed); }
+    }
+  }
+  hit(owner, game, matchTime, damage) {
+    for (const ball of game.balls) {
+      if (ball.hp <= 0 || ball === owner || game.areAllies(ball, owner)) continue;
+      if (!circleHit(owner.pos, this.slashRadius, ball.pos, ball.radius)) continue;
+      ball.takeDamage(damage, game, owner, matchTime);
+      ball.vel = safeNormalize(Vec2.sub(ball.pos, owner.pos)).scale(1250);
+      ball.externalForceUntil = matchTime + 0.45;
+    }
+  }
+  draw(owner, game, ctx) {
+    ctx.save();
+    if (this.state === 'lock' || this.state === 'charge') {
+      ctx.strokeStyle = this.state === 'lock' ? COLORS.swordAura : COLORS.swordSilver; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(this.lockCenter.x, this.lockCenter.y, this.slashRadius, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(this.lockCenter.x - 32, this.lockCenter.y - 32); ctx.lineTo(this.lockCenter.x + 32, this.lockCenter.y + 32); ctx.moveTo(this.lockCenter.x + 32, this.lockCenter.y - 32); ctx.lineTo(this.lockCenter.x - 32, this.lockCenter.y + 32); ctx.stroke();
+    } else if (this.state === 'slash') {
+      ctx.strokeStyle = COLORS.swordAura; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, this.slashRadius, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = COLORS.swordSilver; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(owner.pos.x - this.slashRadius, owner.pos.y + this.slashRadius * .35); ctx.lineTo(owner.pos.x + this.slashRadius, owner.pos.y - this.slashRadius * .35); ctx.stroke();
+    }
+    ctx.restore();
   }
 }

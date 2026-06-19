@@ -70,9 +70,11 @@ export class Ball {
     if (this.hp <= 0 || amount <= 0) return 0;
     const actual = Math.max(0, this.skill.modifyIncomingDamage(this, amount, source, game, matchTime));
     if (actual <= 0) return 0;
+    const wasAlive = this.hp > 0;
     this.hp = Math.max(0, this.hp - actual);
     game?.addFloatingText(this.pos, `-${Math.round(actual)}`, 'damage');
     this.skill.onDamageTaken(this, actual, source, game, matchTime);
+    if (wasAlive && this.hp <= 0) this.skill.onDeath(this, game, matchTime);
     return actual;
   }
 
@@ -294,6 +296,36 @@ export class Ball {
       ctx.strokeStyle = COLORS.waveBlue; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, 15, 0.1, Math.PI * 1.5); ctx.stroke(); ctx.beginPath(); ctx.arc(x, y, 23, 1.0, Math.PI * 1.85); ctx.stroke();
     } else if (id === 'cresson') {
       ctx.fillStyle = COLORS.cressonPink; for (let i = 0; i < 6; i++) { const a = i * Math.PI * 2 / 6; ctx.beginPath(); ctx.arc(x + Math.cos(a) * 11, y + Math.sin(a) * 11, 8, 0, Math.PI * 2); ctx.fill(); } ctx.fillStyle = COLORS.yellow; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+    } else if (id === 'slime') {
+      ctx.fillStyle = COLORS.slimeDark || '#2da046';
+      ctx.beginPath(); ctx.ellipse(x - 7, y - 5, 7, 4, -0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + 10, y + 8, 5, 3, 0.3, 0, Math.PI * 2); ctx.fill();
+    } else if (id === 'king') {
+      ctx.fillStyle = COLORS.kingGold || '#ffd74b';
+      ctx.beginPath();
+      ctx.moveTo(x - 16, y - 12); ctx.lineTo(x - 8, y - 24); ctx.lineTo(x, y - 12); ctx.lineTo(x + 8, y - 24); ctx.lineTo(x + 16, y - 12);
+      ctx.closePath(); ctx.fill(); ctx.strokeStyle = COLORS.black; ctx.stroke();
+    } else if (id === 'guard') {
+      ctx.strokeStyle = COLORS.guardNavy || '#5a7dd2'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x, y - 17); ctx.lineTo(x + 14, y - 5); ctx.lineTo(x + 10, y + 15); ctx.lineTo(x, y + 21); ctx.lineTo(x - 10, y + 15); ctx.lineTo(x - 14, y - 5); ctx.closePath(); ctx.stroke();
+    } else if (id === 'libai') {
+      ctx.strokeStyle = COLORS.swordSilver || '#d2e6f5'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x - 17, y + 13); ctx.lineTo(x + 16, y - 16); ctx.stroke();
+      ctx.fillStyle = COLORS.winePurple || '#9146b4'; ctx.beginPath(); ctx.arc(x - 12, y - 13, 6, 0, Math.PI * 2); ctx.fill();
+    } else if (id === 'chishishen') {
+      ctx.fillStyle = COLORS.poopBrown || '#694626';
+      ctx.beginPath(); ctx.arc(x - 8, y + 5, 8, 0, Math.PI * 2); ctx.arc(x + 7, y + 5, 8, 0, Math.PI * 2); ctx.arc(x, y - 6, 7, 0, Math.PI * 2); ctx.fill();
+    } else if (id === 'annoyingorange') {
+      ctx.fillStyle = COLORS.black;
+      ctx.beginPath(); ctx.arc(x - 8, y - 4, 3, 0, Math.PI * 2); ctx.arc(x + 8, y - 4, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y + 6, 9, 0, Math.PI); ctx.stroke();
+    } else if (id === 'quicksilver') {
+      ctx.strokeStyle = COLORS.quicksilverBlue || '#96dcff'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x - 12, y - 18); ctx.lineTo(x + 2, y - 2); ctx.lineTo(x - 5, y - 2); ctx.lineTo(x + 12, y + 18); ctx.stroke();
+    } else if (id === 'swordsman') {
+      ctx.strokeStyle = COLORS.swordSilver || '#d2e6f5'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(x - 18, y + 18); ctx.lineTo(x + 18, y - 18); ctx.stroke();
+      ctx.strokeStyle = COLORS.swordAura || '#96d2ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r * .72, 0, Math.PI * 2); ctx.stroke();
     } else if (id === 'catherine') {
       ctx.strokeStyle = COLORS.arrowGold;
       ctx.lineWidth = 4;
