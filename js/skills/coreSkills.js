@@ -4,6 +4,62 @@ import { Hazard } from '../hazardBase.js';
 import { ARENA_SIZE, BALL_RADIUS, BALL_SPEED, COLORS, NORMAL_BODY_COOLDOWN, NORMAL_BODY_DAMAGE } from '../config.js';
 import { Vec2, randomUnitVector, safeNormalize } from '../vector.js';
 import { circleHit, distancePointToSegment, randomPointInRect, clamp } from '../utils.js';
+import { ParticleBurstEffect, PulseRingEffect } from '../effects.js';
+
+function drawPaperPage(ctx, center, direction, width = 30, height = 22) {
+  const dir = safeNormalize(direction);
+  const perp = dir.perp();
+  const pts = [
+    Vec2.add(Vec2.add(center, Vec2.scale(dir, width / 2)), Vec2.scale(perp, height / 2)),
+    Vec2.add(Vec2.add(center, Vec2.scale(dir, -width / 2)), Vec2.scale(perp, height / 2)),
+    Vec2.add(Vec2.add(center, Vec2.scale(dir, -width / 2)), Vec2.scale(perp, -height / 2)),
+    Vec2.add(Vec2.add(center, Vec2.scale(dir, width / 2)), Vec2.scale(perp, -height / 2))
+  ];
+  ctx.save();
+  ctx.fillStyle = COLORS.paperWhite;
+  ctx.strokeStyle = COLORS.paperEdge;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  const corner = pts[0];
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(corner.x - dir.x * 8, corner.y - dir.y * 8);
+  ctx.lineTo(corner.x - perp.x * 8, corner.y - perp.y * 8);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  for (const off of [-4, 4]) {
+    const c = Vec2.add(center, Vec2.scale(perp, off));
+    ctx.beginPath();
+    ctx.moveTo(c.x - dir.x * 8, c.y - dir.y * 8);
+    ctx.lineTo(c.x + dir.x * 8, c.y + dir.y * 8);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawTinyFoot(ctx, center) {
+  ctx.save();
+  ctx.fillStyle = COLORS.footPink;
+  ctx.strokeStyle = COLORS.black;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(center.x, center.y, 10, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.arc(center.x - 9 + i * 6, center.y - 24, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 
 export class NormalSkill extends Skill {
   onBodyCollision(owner, other, game, matchTime) {
@@ -47,9 +103,9 @@ export class HammerSkill extends Skill {
       if (matchTime < next) continue;
       this.nextHitTimes.set(ball.uid, matchTime + this.hitCooldown);
       ball.takeDamage(this.damage, game, owner, matchTime);
-      const knock = safeNormalize(Vec2.sub(ball.pos, owner.pos));
+      const knock = safeNormalize(Vec2.sub(ball.pos, p));
       ball.vel = knock.scale(Math.max(ball.currentSpeed(matchTime), 650));
-      ball.externalForceUntil = matchTime + 0.22;
+      ball.externalForceUntil = matchTime + 0.18;
     }
   }
 
@@ -63,11 +119,18 @@ export class HammerSkill extends Skill {
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(p.x, p.y, this.hammerRadius, 0, Math.PI * 2);
-    ctx.fillStyle = COLORS.hammer;
+    ctx.arc(p.x + 4, p.y + 5, this.hammerRadius, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.black;
     ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = COLORS.black;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, this.hammerRadius, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.yellow;
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = COLORS.orange;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = COLORS.white;
     ctx.stroke();
     ctx.restore();
   }
@@ -104,12 +167,49 @@ export class VampireSkill extends Skill {
         this.activeDrains.delete(uid);
         continue;
       }
+      const delta = Vec2.sub(drain.target.pos, owner.pos);
+      const dist = delta.length();
+      if (dist > 0) {
+        const normal = delta.scale(1 / dist);
+        const desired = owner.radius + drain.target.radius + 5;
+        if (dist > desired) {
+          const pull = Math.min((dist - desired) * 0.08, 4);
+          owner.pos.add(Vec2.scale(normal, pull));
+          drain.target.pos.add(Vec2.scale(normal, -pull));
+        }
+      }
       while (matchTime >= drain.next && drain.next <= drain.end) {
         drain.next += this.drainInterval;
         const actual = drain.target.takeDamage(this.drainDamage, game, owner, matchTime);
         if (actual > 0) owner.heal(this.drainHeal, game);
       }
     }
+  }
+
+  draw(owner, game, ctx) {
+    const target = game.nearestEnemy(owner);
+    const direction = target ? safeNormalize(Vec2.sub(target.pos, owner.pos)) : new Vec2(1, 0);
+    const perp = direction.perp();
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const side of [1, -1]) {
+      const base = Vec2.add(Vec2.add(owner.pos, Vec2.scale(direction, 18)), Vec2.scale(perp, side * 8));
+      const tip = Vec2.add(Vec2.add(owner.pos, Vec2.scale(direction, 44)), Vec2.scale(perp, side * 4));
+      ctx.strokeStyle = COLORS.white;
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+      ctx.strokeStyle = COLORS.darkRed;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(tip.x + direction.x * 5, tip.y + direction.y * 5); ctx.stroke();
+    }
+    for (const drain of this.activeDrains.values()) {
+      if (drain.target?.hp > 0) {
+        ctx.strokeStyle = COLORS.red;
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(owner.pos.x, owner.pos.y); ctx.lineTo(drain.target.pos.x, drain.target.pos.y); ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 }
 
@@ -209,6 +309,15 @@ class HealingFieldHazard extends Hazard {
     ctx.strokeStyle = 'rgba(80,220,130,.35)';
     ctx.lineWidth = 1;
     ctx.stroke();
+    ctx.strokeStyle = COLORS.heal;
+    ctx.lineWidth = 4;
+    for (let i = 0; i < 4; i++) {
+      const a = this.pulse + i * Math.PI * 2 / 4;
+      ctx.beginPath();
+      ctx.moveTo(this.pos.x + Math.cos(a) * 18, this.pos.y + Math.sin(a) * 18);
+      ctx.lineTo(this.pos.x + Math.cos(a) * 34, this.pos.y + Math.sin(a) * 34);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -226,8 +335,19 @@ export class HuatuoSkill extends Skill {
     if (!enemy) return;
     this.nextFire = matchTime + this.cooldown;
     const dir = safeNormalize(Vec2.sub(enemy.pos, owner.pos));
-    const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 14));
+    const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 18));
     game.projectiles.push(new HealingOrbProjectile(owner, start, dir));
+  }
+  draw(owner, game, ctx) {
+    const top = new Vec2(owner.pos.x, owner.pos.y - owner.radius - 16);
+    ctx.save();
+    ctx.fillStyle = COLORS.huatuo;
+    ctx.strokeStyle = COLORS.black;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(top.x, top.y, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = COLORS.white; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(top.x - 7, top.y); ctx.lineTo(top.x + 7, top.y); ctx.moveTo(top.x, top.y - 7); ctx.lineTo(top.x, top.y + 7); ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -245,6 +365,7 @@ export class GhostSkill extends Skill {
   }
 
   isUntargetable(owner, matchTime) { return this.isPhased(owner, matchTime); }
+  immuneToControl(owner, matchTime) { return this.isPhased(owner, matchTime); }
   ignoresPhysicalCollision(owner, other, matchTime) { return this.isPhased(owner, matchTime); }
   modifyIncomingDamage(owner, amount, source, game, matchTime) { return this.isPhased(owner, matchTime) ? 0 : amount; }
   speedMultiplier(owner, matchTime) { return this.isPhased(owner, matchTime) ? 2.0 : 1.0; }
@@ -260,6 +381,34 @@ export class GhostSkill extends Skill {
       ball.takeDamage(this.phaseDamage, game, owner, matchTime);
     }
   }
+
+  draw(owner, game, ctx) {
+    const now = owner.lastMatchTime || 0;
+    const phased = this.isPhased(owner, now);
+    const color = phased ? COLORS.ghostPhase : COLORS.ghost;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = COLORS.black;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const a = now * 3.0 + i * Math.PI * 2 / 3;
+      const p = Vec2.add(owner.pos, Vec2.scale(new Vec2(Math.cos(a), Math.sin(a)), owner.radius + 13));
+      ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(owner.pos.x - 9, owner.pos.y - 7, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(owner.pos.x + 9, owner.pos.y - 7, 4, 0, Math.PI * 2); ctx.fill();
+    if (phased) {
+      ctx.strokeStyle = color;
+      ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 8, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = color;
+      for (let i = 0; i < 6; i++) {
+        const a = now * 5.0 + i * Math.PI * 2 / 6;
+        const p = Vec2.add(owner.pos, Vec2.scale(new Vec2(Math.cos(a), Math.sin(a)), owner.radius + 23));
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
 }
 
 export class RibbonSkill extends Skill {
@@ -270,65 +419,92 @@ export class RibbonSkill extends Skill {
     this.damage = 2;
     this.hitCooldown = 0.32;
     this.history = [];
+    this.maxHistory = 80;
     this.nextHit = new Map();
     this.colors = [COLORS.ribbonRed, COLORS.ribbonBlue, COLORS.ribbonGold];
+    this.wavePhase = Math.random() * Math.PI * 2;
+  }
+
+  updateHistory(owner) {
+    if (!this.history.length || this.history[this.history.length - 1].distanceTo(owner.pos) > 3) this.history.push(owner.pos.clone());
+    if (this.history.length > this.maxHistory) this.history = this.history.slice(this.history.length - this.maxHistory);
   }
 
   update(owner, game, dt, matchTime) {
-    this.history.unshift(owner.pos.clone());
-    if (this.history.length > 140) this.history.pop();
+    this.wavePhase += dt * 5.0;
+    this.updateHistory(owner);
     for (let i = 0; i < this.ribbonCount; i++) {
-      const pts = this.ribbonPoints(owner, i);
+      const pts = this.ribbonPoints(owner, i, matchTime);
       for (const ball of game.balls) {
         if (ball.hp <= 0 || ball === owner || game.areAllies(ball, owner)) continue;
+        const key = `${ball.uid}:${i}`;
+        if (matchTime < (this.nextHit.get(key) ?? 0)) continue;
         let touching = false;
         for (let j = 1; j < pts.length; j++) {
-          if (distancePointToSegment(ball.pos, pts[j - 1], pts[j]) <= ball.radius + 4) {
-            touching = true;
-            break;
-          }
+          if (distancePointToSegment(ball.pos, pts[j - 1], pts[j]) <= ball.radius + 4) { touching = true; break; }
         }
         if (!touching) continue;
-        const key = `${i}:${ball.uid}`;
-        const next = this.nextHit.get(key) ?? 0;
-        if (matchTime < next) continue;
         this.nextHit.set(key, matchTime + this.hitCooldown);
         ball.takeDamage(this.damage, game, owner, matchTime);
       }
     }
   }
 
-  ribbonPoints(owner, index) {
-    if (this.history.length < 2) {
-      const back = safeNormalize(owner.vel).scale(-this.ribbonLength);
-      return [owner.pos.clone(), Vec2.add(owner.pos, back)];
-    }
-    const offset = (index - 1) * 10;
-    const pts = [];
-    const side = safeNormalize(owner.vel).perp().scale(offset);
+  ribbonPoints(owner, index, matchTime = owner.lastMatchTime || 0) {
+    this.updateHistory(owner);
+    if (!this.history.length) return [owner.pos.clone()];
+    const pts = [owner.pos.clone()];
     let total = 0;
-    for (let i = 0; i < this.history.length; i++) {
-      const p = Vec2.add(this.history[i], side);
-      if (i > 0) total += this.history[i].distanceTo(this.history[i - 1]);
-      if (total <= this.ribbonLength) pts.push(p);
-      else break;
+    let prev = owner.pos.clone();
+    const phase = this.wavePhase + index * Math.PI * 2 / 3;
+    const sideShift = (index - 1) * 8;
+    const reversed = [...this.history].reverse();
+    for (let k = 0; k < reversed.length; k++) {
+      let base = reversed[k].clone();
+      const step = prev.distanceTo(base);
+      if (total + step > this.ribbonLength) {
+        if (step > 0) base = prev.lerp(base, (this.ribbonLength - total) / step);
+        pts.push(base);
+        break;
+      }
+      total += step;
+      const direction = prev.distanceTo(base) > 0 ? safeNormalize(Vec2.sub(prev, base)) : safeNormalize(owner.vel);
+      const perp = direction.perp();
+      const wave = Math.sin(k * 0.75 + phase + matchTime * 7.0) * (5 + k * 0.08);
+      pts.push(Vec2.add(base, Vec2.scale(perp, sideShift + wave)));
+      prev = base;
+      if (total >= this.ribbonLength) break;
     }
-    return pts.length >= 2 ? pts : [owner.pos.clone(), owner.pos.clone().add(side)];
+    if (pts.length < 2) {
+      const back = safeNormalize(owner.vel).scale(-this.ribbonLength);
+      pts.push(Vec2.add(owner.pos, Vec2.add(back, new Vec2(index * 5 - 5, 0))));
+    }
+    return pts;
   }
 
   draw(owner, game, ctx) {
     ctx.save();
-    ctx.lineWidth = 5;
     ctx.lineCap = 'round';
     for (let i = 0; i < this.ribbonCount; i++) {
-      const pts = this.ribbonPoints(owner, i);
+      const pts = this.ribbonPoints(owner, i, owner.lastMatchTime || 0);
       if (pts.length < 2) continue;
       ctx.strokeStyle = this.colors[i];
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
       for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
       ctx.stroke();
+      ctx.strokeStyle = COLORS.white;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      const tail = pts[pts.length - 1];
+      ctx.fillStyle = this.colors[i];
+      ctx.beginPath(); ctx.arc(tail.x, tail.y, 6, 0, Math.PI * 2); ctx.fill();
     }
+    const knot = Vec2.add(owner.pos, Vec2.scale(safeNormalize(owner.vel), -(owner.radius - 2)));
+    ctx.fillStyle = COLORS.white;
+    ctx.strokeStyle = COLORS.black;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(knot.x, knot.y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.restore();
   }
 }
@@ -364,16 +540,16 @@ class IceCurlingRingHazard extends Hazard {
     if (this.snapshots.size === 0) {
       for (const ball of game.balls) {
         if (ball.hp <= 0) continue;
-        this.snapshots.set(ball.uid, this.zoneOf(ball.pos, ball.radius));
+        this.snapshots.set(ball.uid, { zone: this.zoneOf(ball.pos, ball.radius), pos: ball.pos.clone() });
         ball.addStun(this.freezeDuration, matchTime);
       }
     }
     if (!this.resolved && matchTime >= this.created + this.freezeDuration) {
       this.resolved = true;
-      const ownerZone = this.snapshots.get(this.owner.uid) ?? this.zoneOf(this.owner.pos, this.owner.radius);
+      const ownerZone = this.snapshots.get(this.owner.uid)?.zone ?? this.zoneOf(this.owner.pos, this.owner.radius);
       for (const ball of game.balls) {
         if (ball.hp <= 0 || ball === this.owner || game.areAllies(ball, this.owner)) continue;
-        const targetZone = this.snapshots.get(ball.uid) ?? this.zoneOf(ball.pos, ball.radius);
+        const targetZone = this.snapshots.get(ball.uid)?.zone ?? this.zoneOf(ball.pos, ball.radius);
         const lead = targetZone - ownerZone;
         if (lead < 0) continue;
         let damage = (lead + 1) * 5;
@@ -398,6 +574,13 @@ class IceCurlingRingHazard extends Hazard {
     ctx.beginPath();
     ctx.arc(this.center.x, this.center.y, this.largeRadius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = COLORS.iceRing;
+    ctx.lineWidth = 2;
+    for (const data of this.snapshots.values()) {
+      ctx.beginPath();
+      ctx.arc(data.pos.x, data.pos.y, 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -413,6 +596,19 @@ export class IceCurlingSkill extends Skill {
     if (matchTime < this.nextCast) return;
     this.nextCast = matchTime + this.cooldown;
     game.hazards.push(new IceCurlingRingHazard(owner, matchTime));
+  }
+
+  draw(owner, game, ctx) {
+    const handle = new Vec2(owner.pos.x, owner.pos.y - owner.radius - 8);
+    ctx.save();
+    ctx.fillStyle = COLORS.ice;
+    ctx.strokeStyle = COLORS.black;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(handle.x, handle.y, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = COLORS.iceRing;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(owner.pos.x - 12, owner.pos.y - 8); ctx.lineTo(owner.pos.x + 12, owner.pos.y - 8); ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -440,7 +636,7 @@ class PaperProjectile extends Projectile {
       if (!circleHit(this.pos, this.radius, ball.pos, ball.radius)) continue;
       this.alive = false;
       ball.addDot(1, 0.5, 4.0, matchTime, 'paper page');
-      ball.addSlow(0.5, 4.0, matchTime);
+      ball.addPaperSlow(0.5, 4.0, matchTime);
       ball.addStuckPaper?.(4.0, matchTime, this.direction);
       return;
     }
@@ -482,8 +678,13 @@ export class PapermanSkill extends Skill {
     const enemy = game.nearestEnemy(owner); if (!enemy) return;
     this.nextFire = matchTime + this.cooldown;
     const dir = safeNormalize(Vec2.sub(enemy.pos, owner.pos));
-    const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 16));
+    const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 18));
     game.projectiles.push(new PaperProjectile(owner, start, dir));
+  }
+
+  draw(owner, game, ctx) {
+    const center = new Vec2(owner.pos.x + owner.radius * 0.72, owner.pos.y - owner.radius * 0.68);
+    drawPaperPage(ctx, center, new Vec2(1, -0.25), 24, 18);
   }
 }
 
@@ -544,6 +745,19 @@ export class NinjaSkill extends Skill {
     }
     this.count = Math.min(this.maxCount, this.count + 1);
   }
+
+  draw(owner, game, ctx) {
+    const y = owner.pos.y - 10;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = COLORS.black;
+    ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.moveTo(owner.pos.x - 24, y); ctx.lineTo(owner.pos.x + 24, y); ctx.stroke();
+    ctx.strokeStyle = COLORS.ninjaGreen;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(owner.pos.x - 24, y); ctx.lineTo(owner.pos.x + 24, y); ctx.stroke();
+    ctx.restore();
+  }
 }
 
 class BlackHoleHazardWeb extends Hazard {
@@ -565,6 +779,8 @@ class BlackHoleHazardWeb extends Hazard {
       if (dist <= this.radius && dist > 1) {
         const dir = delta.scale(1 / dist);
         const pullSpeed = 780 + (1 - dist / this.radius) * 620;
+        const outwardSpeed = ball.vel.dot(Vec2.scale(dir, -1));
+        if (outwardSpeed > 0) ball.vel.add(Vec2.scale(dir, outwardSpeed));
         const inwardSpeed = ball.vel.dot(dir);
         if (inwardSpeed < pullSpeed) ball.vel.add(Vec2.scale(dir, pullSpeed - inwardSpeed));
         ball.pos.add(Vec2.scale(dir, Math.min(dist, (430 + (1 - dist / this.radius) * 460) * dt)));
@@ -640,6 +856,22 @@ export class BlackHoleSkill extends Skill {
     const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 16));
     game.projectiles.push(new BlackHoleMissileProjectile(owner, start, dir));
   }
+
+  draw(owner, game, ctx) {
+    ctx.save();
+    ctx.strokeStyle = COLORS.voidPurple;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 10, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = COLORS.black;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = COLORS.voidPurple;
+    for (const angle of [0.2, 2.3, 4.5]) {
+      const p = new Vec2(owner.pos.x + Math.cos(angle) * (owner.radius + 11), owner.pos.y + Math.sin(angle) * (owner.radius + 11));
+      ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
 }
 
 const FRUITS = {
@@ -703,7 +935,7 @@ class FruitProjectile extends Projectile {
   apply(ball,game,matchTime){
     if(this.key==='apple') ball.takeDamage(5,game,this.owner,matchTime);
     else if(this.key==='watermelon') this.explodeWatermelon(game,matchTime);
-    else if(this.key==='peach'){ ball.takeDamage(3,game,this.owner,matchTime); ball.addSlow(0.8,3.0,matchTime); }
+    else if(this.key==='peach'){ ball.takeDamage(3,game,this.owner,matchTime); ball.addFruitSlow(0.20,3.0,matchTime); }
     else if(this.key==='grape'){ ball.takeDamage(10,game,this.owner,matchTime); this.burstGrapes(game); }
     else if(this.key==='tangerine') ball.takeDamage(3,game,this.owner,matchTime);
     else if(this.key==='lychee') ball.addDot(1,0.5,5.0,matchTime,'lychee');
@@ -726,6 +958,32 @@ export class FruitShooterSkill extends Skill {
       game.projectiles.push(new FruitProjectile(owner,start,dir,randomFruitKey()));
     }
   }
+
+  draw(owner, game, ctx) {
+    const target = game.nearestEnemy(owner);
+    const dir = target ? safeNormalize(Vec2.sub(target.pos, owner.pos)) : new Vec2(1, 0);
+    const perp = dir.perp();
+    const barrelStart = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 4));
+    const barrelEnd = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 35));
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = COLORS.tangerineOrange;
+    ctx.lineWidth = 12;
+    ctx.beginPath(); ctx.moveTo(barrelStart.x, barrelStart.y); ctx.lineTo(barrelEnd.x, barrelEnd.y); ctx.stroke();
+    ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = COLORS.black; ctx.beginPath(); ctx.arc(barrelEnd.x, barrelEnd.y, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = COLORS.orange; ctx.beginPath(); ctx.arc(barrelEnd.x, barrelEnd.y, 5, 0, Math.PI * 2); ctx.fill();
+    const basket = Vec2.add(owner.pos, Vec2.scale(dir, -(owner.radius + 12)));
+    ctx.fillStyle = '#965a2d'; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(basket.x, basket.y, 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const keys = ['apple', 'watermelon', 'peach', 'grape', 'tangerine', 'lychee'];
+    for (let i = 0; i < keys.length; i++) {
+      const a = i * Math.PI * 2 / keys.length;
+      const off = Vec2.add(Vec2.scale(perp, Math.cos(a) * 15), Vec2.scale(dir, Math.sin(a) * 7));
+      drawFruit(ctx, keys[i], Vec2.add(basket, off), 5, a);
+    }
+    ctx.restore();
+  }
 }
 
 class VaseProjectile extends Projectile {
@@ -733,7 +991,7 @@ class VaseProjectile extends Projectile {
   update(game,dt,matchTime){
     this.pos.add(Vec2.scale(this.vel,dt)); this.angle+=8*dt; const a=game.arena;
     if(this.pos.x-this.radius<=a.left||this.pos.x+this.radius>=a.right||this.pos.y-this.radius<=a.top||this.pos.y+this.radius>=a.bottom){ this.alive=false; return; }
-    for(const ball of game.balls){ if(ball.hp<=0||game.areAllies(ball,this.owner)) continue; if(circleHit(this.pos,this.radius,ball.pos,ball.radius)){ ball.pengciMarks=(ball.pengciMarks||0)+1; ball.nextPengciDecay=matchTime+6; this.alive=false; return; } }
+    for(const ball of game.balls){ if(ball.hp<=0||game.areAllies(ball,this.owner)) continue; if(circleHit(this.pos,this.radius,ball.pos,ball.radius)){ ball.addPengciMark(matchTime); this.alive=false; return; } }
   }
   draw(ctx){ const dir=safeNormalize(this.vel), perp=dir.perp(); ctx.save(); ctx.fillStyle=COLORS.vaseWhite; ctx.strokeStyle=COLORS.black; ctx.lineWidth=2; const p=this.pos; ctx.beginPath(); ctx.moveTo(p.x+dir.x*6+perp.x*5,p.y+dir.y*6+perp.y*5); ctx.lineTo(p.x+dir.x*6-perp.x*5,p.y+dir.y*6-perp.y*5); ctx.lineTo(p.x-dir.x*14-perp.x*10,p.y-dir.y*14-perp.y*10); ctx.lineTo(p.x-dir.x*14+perp.x*10,p.y-dir.y*14+perp.y*10); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.strokeStyle=COLORS.vaseBlue; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(p.x-perp.x*7,p.y-perp.y*7); ctx.lineTo(p.x+perp.x*7,p.y+perp.y*7); ctx.stroke(); ctx.restore(); }
 }
@@ -741,10 +999,31 @@ class VaseProjectile extends Projectile {
 export class PengciSkill extends Skill {
   constructor(){ super(); this.nextFire=0.9; this.cooldown=1.0; this.bodyCooldown=0.35; this.nextBody=new Map(); }
   update(owner,game,dt,matchTime){
-    for(const ball of game.balls){ if((ball.pengciMarks||0)>0 && matchTime>=(ball.nextPengciDecay||Infinity)){ ball.pengciMarks=Math.max(0,ball.pengciMarks-1); ball.nextPengciDecay=matchTime+6; } }
-    if(matchTime<this.nextFire) return; const enemy=game.nearestEnemy(owner); if(!enemy) return; this.nextFire=matchTime+this.cooldown; const dir=safeNormalize(Vec2.sub(enemy.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+16)); game.projectiles.push(new VaseProjectile(owner,start,dir));
+    if(matchTime<this.nextFire) return; const enemy=game.nearestEnemy(owner); if(!enemy) return; this.nextFire=matchTime+this.cooldown; const dir=safeNormalize(Vec2.sub(enemy.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+18)); game.projectiles.push(new VaseProjectile(owner,start,dir));
   }
-  onBodyCollision(owner,other,game,matchTime){ const marks=other.pengciMarks||0; if(marks<=0) return false; const next=this.nextBody.get(other.uid)||0; if(matchTime<next) return false; this.nextBody.set(other.uid,matchTime+this.bodyCooldown); other.pengciMarks=0; other.nextPengciDecay=0; other.takeDamage(Math.pow(2,marks+1),game,owner,matchTime); return true; }
+  onBodyCollision(owner,other,game,matchTime){ const marks=other.pengciMarks||0; if(marks<=0) return false; const next=this.nextBody.get(other.uid)||0; if(matchTime<next) return false; this.nextBody.set(other.uid,matchTime+this.bodyCooldown); other.clearPengciMarks(); other.takeDamage(Math.pow(2,marks+1),game,owner,matchTime); const knock=safeNormalize(Vec2.sub(other.pos,owner.pos)); other.vel=knock.scale(Math.max(other.currentSpeed(matchTime),640)); other.externalForceUntil=matchTime+0.22; return true; }
+
+  draw(owner, game, ctx) {
+    const target = game.nearestEnemy(owner);
+    const dir = target ? safeNormalize(Vec2.sub(target.pos, owner.pos)) : new Vec2(1, 0);
+    const perp = dir.perp();
+    const sign = Vec2.add(owner.pos, Vec2.scale(dir, -(owner.radius + 14)));
+    ctx.save();
+    ctx.fillStyle = COLORS.ribbonGold;
+    ctx.strokeStyle = COLORS.black;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect?.(sign.x - 17, sign.y - 11, 34, 22, 5);
+    if (!ctx.roundRect) ctx.rect(sign.x - 17, sign.y - 11, 34, 22);
+    ctx.fill(); ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(owner.pos.x - dir.x * owner.radius, owner.pos.y - dir.y * owner.radius); ctx.lineTo(sign.x + dir.x * 10, sign.y + dir.y * 10); ctx.stroke();
+    const vase = Vec2.add(Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 18)), Vec2.scale(perp, 11));
+    ctx.fillStyle = COLORS.vaseWhite; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(vase.x, vase.y, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = COLORS.vaseBlue; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(vase.x, vase.y, 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
 }
 
 class ShieldProjectile extends Projectile {
@@ -755,9 +1034,22 @@ class ShieldProjectile extends Projectile {
 
 export class ShieldGuardSkill extends Skill {
   constructor(){ super(); this.shieldLayers=5; this.nextRegen=5; this.nextThrow=1.3; this.throwCooldown=4.0; }
-  modifyIncomingDamage(owner,amount,source,game,matchTime){ if(this.shieldLayers>0 && amount>0){ this.shieldLayers-=1; game?.addFloatingText(owner.pos,'SHIELD','heal'); return 0; } return amount; }
-  update(owner,game,dt,matchTime){ if(matchTime>=this.nextRegen){ this.nextRegen+=5; this.shieldLayers+=1; game.addFloatingText(owner.pos,'+🛡','heal'); } if(matchTime>=this.nextThrow){ const enemy=game.nearestEnemy(owner); if(enemy){ this.nextThrow=matchTime+this.throwCooldown; const dir=safeNormalize(Vec2.sub(enemy.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+18)); game.projectiles.push(new ShieldProjectile(owner,start,dir)); } } }
-  draw(owner,game,ctx){ ctx.save(); ctx.strokeStyle=COLORS.shieldBlue; ctx.lineWidth=2; for(let i=0;i<Math.min(8,this.shieldLayers);i++){ ctx.beginPath(); ctx.arc(owner.pos.x,owner.pos.y,owner.radius+6+i*2,0,Math.PI*2); ctx.stroke(); } ctx.restore(); }
+  modifyIncomingDamage(owner,amount,source,game,matchTime){ if(this.shieldLayers>0 && amount>0){ this.shieldLayers-=1; owner.hitFlashTimer=0.08; return 0; } return amount; }
+  update(owner,game,dt,matchTime){ while(matchTime>=this.nextRegen){ this.nextRegen+=5; this.shieldLayers+=1; } if(matchTime>=this.nextThrow){ const enemy=game.nearestEnemy(owner); if(enemy){ this.nextThrow=matchTime+this.throwCooldown; const dir=safeNormalize(Vec2.sub(enemy.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+22)); game.projectiles.push(new ShieldProjectile(owner,start,dir)); } } }
+  draw(owner, game, ctx) {
+    ctx.save();
+    ctx.strokeStyle = COLORS.shieldBlue;
+    ctx.lineWidth = 1;
+    for (let i = 0; i < Math.min(this.shieldLayers, 8); i++) {
+      ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 6 + i * 3, 0, Math.PI * 2); ctx.stroke();
+    }
+    const c = new Vec2(owner.pos.x - owner.radius - 18, owner.pos.y);
+    const pts = [[0,-18],[15,-7],[10,15],[0,22],[-10,15],[-15,-7]].map(([x,y]) => new Vec2(c.x+x,c.y+y));
+    ctx.fillStyle = COLORS.shieldSteel; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
 }
 
 class SniperBulletProjectile extends Projectile {
@@ -768,26 +1060,170 @@ class SniperBulletProjectile extends Projectile {
 
 export class SniperSkill extends Skill {
   constructor(){ super(); this.ammo=0; this.nextLoad=1.5; this.halfTriggered=false; }
-  update(owner,game,dt,matchTime){ if(matchTime>=this.nextLoad){ this.nextLoad+=1.5; this.ammo+=1; } if(this.ammo>=5){ const enemy=game.nearestEnemy(owner); if(enemy){ this.ammo-=5; const dir=safeNormalize(Vec2.sub(enemy.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+16)); game.projectiles.push(new SniperBulletProjectile(owner,start,dir)); } } }
+  update(owner,game,dt,matchTime){ while(matchTime>=this.nextLoad){ this.nextLoad+=1.5; this.ammo+=1; } if(this.ammo>=5){ const enemy=game.nearestEnemy(owner); if(enemy){ this.ammo-=5; const dir=safeNormalize(Vec2.sub(enemy.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+18)); game.projectiles.push(new SniperBulletProjectile(owner,start,dir)); } } }
   onDamageTaken(owner,amount,source,game,matchTime){ this.ammo=Math.max(0,this.ammo-1); if(!this.halfTriggered && owner.hp<owner.maxHp/2){ this.halfTriggered=true; this.ammo+=2; } }
-  draw(owner,game,ctx){ ctx.save(); ctx.fillStyle=COLORS.sniperGold; ctx.font='bold 13px Arial'; ctx.textAlign='center'; ctx.fillText(`●${this.ammo}`,owner.pos.x,owner.pos.y-owner.radius-8); ctx.restore(); }
+  draw(owner, game, ctx) {
+    const target = game.nearestEnemy(owner);
+    const dir = target ? safeNormalize(Vec2.sub(target.pos, owner.pos)) : new Vec2(1, 0);
+    const perp = dir.perp();
+    const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 4));
+    const end = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 50));
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.strokeStyle = COLORS.sniperBrown; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke();
+    ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2; ctx.stroke();
+    const scope = Vec2.add(Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 23)), Vec2.scale(perp, 8));
+    ctx.fillStyle = COLORS.sniperGold; ctx.beginPath(); ctx.arc(scope.x, scope.y, 6, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < Math.min(this.ammo, 7); i++) {
+      const a = -Math.PI / 2 + i * 0.45;
+      const p = new Vec2(owner.pos.x + Math.cos(a) * (owner.radius + 14), owner.pos.y + Math.sin(a) * (owner.radius + 14));
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
 }
 
 class SpellWaveProjectile extends Projectile {
-  constructor(owner,pos,direction,empowered=false,target=null){ super(owner); this.pos=pos.clone(); this.prev=pos.clone(); this.vel=safeNormalize(direction).scale(empowered?610:540); this.radius=empowered?18:16; this.empowered=empowered; this.target=target; }
-  update(game,dt,matchTime){ this.prev=this.pos.clone(); this.pos.add(Vec2.scale(this.vel,dt)); if(this.pos.x<game.arena.left-120||this.pos.x>game.arena.right+120||this.pos.y<game.arena.top-120||this.pos.y>game.arena.bottom+120){this.alive=false;return;} for(const ball of game.balls){ if(ball.hp<=0||game.areAllies(ball,this.owner)) continue; if(!circleHit(this.pos,this.radius,ball.pos,ball.radius)) continue; ball.takeDamage(3,game,this.owner,matchTime); ball.addStun(0.3,matchTime); ball.spellMarks=Math.min(5,(ball.spellMarks||0)+1); if(this.empowered){ ball.spellMarks=Math.max(0,(ball.spellMarks||0)-1); this.owner.heal(2,game); } this.alive=false; return; } }
-  draw(ctx){ ctx.save(); ctx.strokeStyle=this.empowered?COLORS.spellCyan:COLORS.spellPurple; ctx.lineWidth=this.empowered?4:3; ctx.beginPath(); ctx.arc(this.pos.x,this.pos.y,this.radius,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+  constructor(owner, pos, direction, extra = false) {
+    super(owner);
+    this.pos = pos.clone();
+    this.direction = safeNormalize(direction);
+    this.extra = extra;
+    this.vel = this.direction.clone().scale(extra ? 610 : 540);
+    this.radius = extra ? 18 : 16;
+    this.age = 0;
+  }
+  update(game, dt, matchTime) {
+    this.age += dt;
+    this.pos.add(Vec2.scale(this.vel, dt));
+    if (this.pos.x < game.arena.left - 110 || this.pos.x > game.arena.right + 110 || this.pos.y < game.arena.top - 110 || this.pos.y > game.arena.bottom + 110) { this.alive = false; return; }
+    for (const ball of game.balls) {
+      if (ball.hp <= 0 || game.areAllies(ball, this.owner) || ball.heldBy) continue;
+      if (!circleHit(this.pos, this.radius, ball.pos, ball.radius)) continue;
+      this.alive = false;
+      ball.takeDamage(3, game, this.owner, matchTime);
+      ball.addStun(0.3, matchTime);
+      const skill = this.owner.skill;
+      if (skill instanceof SpellSkill) skill.onShockwaveHit(this.owner, ball, matchTime, game, this.extra);
+      return;
+    }
+  }
+  draw(ctx) {
+    const perp = this.direction.perp();
+    const color = this.extra ? COLORS.spellChain : COLORS.spellCyan;
+    const back = Vec2.add(this.pos, Vec2.scale(this.direction, -8));
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 3; i++) {
+      const center = Vec2.add(back, Vec2.scale(this.direction, -i * 12));
+      const width = this.radius * (1.9 - i * 0.35) * [1.0, 0.68, 0.36][i];
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, width, -1.15, 1.15);
+      ctx.stroke();
+    }
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, 5, 0, Math.PI * 2); ctx.fill();
+    const note = Vec2.add(Vec2.add(this.pos, Vec2.scale(this.direction, -14)), Vec2.scale(perp, 13));
+    ctx.fillStyle = COLORS.spellPurple;
+    ctx.beginPath(); ctx.arc(note.x, note.y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = COLORS.spellPurple; ctx.beginPath(); ctx.moveTo(note.x, note.y); ctx.lineTo(note.x, note.y - 17); ctx.stroke();
+    ctx.restore();
+  }
 }
 
 export class SpellSkill extends Skill {
-  constructor(){ super(); this.nextFire=0.55; this.cooldown=0.8; this.chainTarget=null; this.chainEnd=0; this.nextChainWave=0; }
-  update(owner,game,dt,matchTime){
-    if(this.chainTarget && (matchTime>=this.chainEnd || this.chainTarget.hp<=0 || (this.chainTarget.spellMarks||0)<=0)){ this.chainTarget=null; }
-    if(this.chainTarget){ owner.addSlow(0.2,0.2,matchTime); this.chainTarget.addSlow(0.2,0.25,matchTime); if(matchTime>=this.nextChainWave){ this.nextChainWave=matchTime+0.6; const dir=safeNormalize(Vec2.sub(this.chainTarget.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+16)); game.projectiles.push(new SpellWaveProjectile(owner,start,dir,true,this.chainTarget)); } return; }
-    for(const ball of game.balls){ if(ball.hp>0&&!game.areAllies(ball,owner)&&(ball.spellMarks||0)>=5){ this.chainTarget=ball; this.chainEnd=matchTime+5; this.nextChainWave=matchTime; break; } }
-    if(matchTime<this.nextFire) return; const enemy=game.nearestEnemy(owner); if(!enemy) return; this.nextFire=matchTime+this.cooldown; const dir=safeNormalize(Vec2.sub(enemy.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+16)); game.projectiles.push(new SpellWaveProjectile(owner,start,dir,false));
+  constructor() {
+    super();
+    this.cooldown = 0.8;
+    this.extraCooldown = 0.6;
+    this.chainMaxDuration = 5.0;
+    this.nextFire = 0.55;
+    this.nextExtraFire = 0.95;
+    this.stacksByUid = new Map();
+    this.chainedTargetUid = null;
+    this.chainEnd = 0;
+    this.pulse = 0;
   }
-  draw(owner,game,ctx){ if(this.chainTarget){ ctx.save(); ctx.strokeStyle=COLORS.spellPurple; ctx.lineWidth=3; ctx.setLineDash([8,6]); ctx.beginPath(); ctx.moveTo(owner.pos.x,owner.pos.y); ctx.lineTo(this.chainTarget.pos.x,this.chainTarget.pos.y); ctx.stroke(); ctx.restore(); } }
+  speedMultiplier(owner, matchTime) { return this.chainedTargetUid != null ? 0.2 : 1.0; }
+  findBallByUid(game, uid) { return game.balls.find(b => b.uid === uid && b.hp > 0) || null; }
+  onShockwaveHit(owner, target, matchTime, game, extra = false) {
+    const uid = target.uid;
+    const old = this.stacksByUid.get(uid) || 0;
+    if (extra && this.chainedTargetUid === uid) {
+      const next = Math.max(0, old - 1);
+      this.stacksByUid.set(uid, next);
+      target.spellMarks = next;
+      owner.heal(2, game);
+      if (next <= 0) this.chainedTargetUid = null;
+    } else {
+      const next = Math.min(5, old + 1);
+      this.stacksByUid.set(uid, next);
+      target.spellMarks = next;
+      if (next >= 5) {
+        this.chainedTargetUid = uid;
+        this.chainEnd = matchTime + this.chainMaxDuration;
+        this.nextExtraFire = matchTime;
+      }
+    }
+  }
+  updateChain(owner, matchTime, game) {
+    if (this.chainedTargetUid == null) return null;
+    const target = this.findBallByUid(game, this.chainedTargetUid);
+    if (!target) { this.chainedTargetUid = null; return null; }
+    if ((this.stacksByUid.get(target.uid) || 0) <= 0) { this.chainedTargetUid = null; target.spellMarks = 0; return null; }
+    if (matchTime >= this.chainEnd) { this.stacksByUid.set(target.uid, 0); target.spellMarks = 0; this.chainedTargetUid = null; return null; }
+    target.addSlow(0.2, 0.16, matchTime);
+    return target;
+  }
+  update(owner, game, dt, matchTime) {
+    this.pulse += dt * 7.0;
+    for (const ball of game.balls) {
+      if (ball.hp <= 0 && this.stacksByUid.has(ball.uid)) { this.stacksByUid.delete(ball.uid); ball.spellMarks = 0; }
+    }
+    let chainTarget = this.updateChain(owner, matchTime, game);
+    while (matchTime >= this.nextFire) {
+      this.nextFire += this.cooldown;
+      const enemy = game.nearestEnemy(owner);
+      if (!enemy) break;
+      const dir = safeNormalize(Vec2.sub(enemy.pos, owner.pos));
+      const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 20));
+      game.projectiles.push(new SpellWaveProjectile(owner, start, dir, false));
+    }
+    chainTarget = this.updateChain(owner, matchTime, game);
+    while (chainTarget && matchTime >= this.nextExtraFire) {
+      this.nextExtraFire += this.extraCooldown;
+      const dir = safeNormalize(Vec2.sub(chainTarget.pos, owner.pos));
+      const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 20));
+      game.projectiles.push(new SpellWaveProjectile(owner, start, dir, true));
+      chainTarget = this.updateChain(owner, matchTime, game);
+    }
+  }
+  draw(owner, game, ctx) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const [i, offset] of [-15, 0, 15].entries()) {
+      const y = owner.pos.y - owner.radius - 18 + i * 8;
+      ctx.strokeStyle = COLORS.spellCyan; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(owner.pos.x - 26, y); ctx.lineTo(owner.pos.x + 26, y + offset * 0.12); ctx.stroke();
+    }
+    const note = new Vec2(owner.pos.x + owner.radius + 18, owner.pos.y - owner.radius * 0.45);
+    ctx.fillStyle = COLORS.spellPurple; ctx.beginPath(); ctx.arc(note.x, note.y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = COLORS.spellPurple; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(note.x, note.y); ctx.lineTo(note.x, note.y - 24); ctx.stroke();
+    ctx.strokeStyle = COLORS.spellCyan; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 12, 0, Math.PI * 2); ctx.stroke();
+    const target = this.findBallByUid(game, this.chainedTargetUid);
+    if (target) {
+      ctx.strokeStyle = COLORS.spellChain; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(owner.pos.x, owner.pos.y); ctx.lineTo(target.pos.x, target.pos.y); ctx.stroke();
+      ctx.strokeStyle = COLORS.white; ctx.lineWidth = 1; ctx.stroke();
+      for (const t of [0.25, 0.5, 0.75]) {
+        const p = owner.pos.lerp(target.pos, t);
+        const r = 4 + Math.round(2 * Math.sin(this.pulse + t * Math.PI * 2));
+        ctx.fillStyle = COLORS.spellPurple; ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, r), 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.strokeStyle = COLORS.spellChain; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(target.pos.x, target.pos.y, target.radius + 12, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
 }
 
 class ArrowRainHazard extends Hazard {
@@ -806,6 +1242,20 @@ export class CatherineSkill extends Skill {
   update(owner,game,dt,matchTime){
     if(this.casting){ owner.addStun(0.1,matchTime); if(this.remaining>0 && matchTime>=this.nextRain){ const enemy=game.nearestEnemy(owner); if(enemy) game.hazards.push(new ArrowRainHazard(owner,enemy.pos,matchTime)); this.remaining-=1; this.nextRain=matchTime+0.4; } if(matchTime>=this.castEnd){ this.casting=false; this.nextCast=matchTime+this.cooldown; const enemy=game.nearestEnemy(owner); if(enemy){ const dir=safeNormalize(Vec2.sub(enemy.pos,owner.pos)); const start=Vec2.add(owner.pos,Vec2.scale(dir,owner.radius+18)); game.projectiles.push(new CloudArrowProjectile(owner,start,dir)); } } return; }
     if(matchTime>=this.nextCast){ this.casting=true; this.remaining=15; this.nextRain=matchTime; this.castEnd=matchTime+6.0; }
+  }
+
+  draw(owner, game, ctx) {
+    const dir = owner.vel.length() > 0 ? safeNormalize(owner.vel) : new Vec2(1, 0);
+    const perp = dir.perp();
+    const bow = Vec2.add(owner.pos, Vec2.scale(perp, owner.radius + 14));
+    ctx.save();
+    ctx.strokeStyle = COLORS.catherinePurple;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(bow.x, bow.y, 25, -1.1, 1.1); ctx.stroke();
+    ctx.strokeStyle = COLORS.arrowGold;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(bow.x - dir.x * 20, bow.y - dir.y * 20); ctx.lineTo(bow.x + dir.x * 20, bow.y + dir.y * 20); ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -831,7 +1281,6 @@ class PoisonFangHazardWeb extends Hazard {
       this.nextTrigger.set(ball.uid, matchTime + 1.0);
       ball.addSlow(0.8, 3.0, matchTime);
       ball.addDot(1, 0.6, 3.0, matchTime, 'poison fang');
-      game.addFloatingText(ball.pos, '毒', 'heal');
     }
   }
   draw(ctx) {
@@ -854,6 +1303,14 @@ export class PoisonFangSkill extends Skill {
     const a = game.arena;
     const p = wall === 'left' ? new Vec2(a.left, owner.pos.y) : wall === 'right' ? new Vec2(a.right, owner.pos.y) : wall === 'top' ? new Vec2(owner.pos.x, a.top) : new Vec2(owner.pos.x, a.bottom);
     game.hazards.push(new PoisonFangHazardWeb(owner, p, wall));
+  }
+
+  draw(owner, game, ctx) {
+    const p1 = new Vec2(owner.pos.x, owner.pos.y - owner.radius - 4);
+    const p2 = new Vec2(owner.pos.x - 10, owner.pos.y - owner.radius + 14);
+    const p3 = new Vec2(owner.pos.x + 10, owner.pos.y - owner.radius + 14);
+    ctx.save(); ctx.fillStyle = COLORS.poisonGreen; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
   }
 }
 
@@ -886,13 +1343,26 @@ export class SpiderSkill extends Skill {
     game.spiderWebKeys.add(key);
     game.hazards.push(new SpiderWebHazardWeb(owner, p, key));
   }
+
+  draw(owner, game, ctx) {
+    ctx.save(); ctx.strokeStyle = COLORS.spiderPurple; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    for (const angle of [0.35, 0.75, -0.35, -0.75]) {
+      for (const side of [-1, 1]) {
+        const dir = new Vec2(Math.cos(angle) * side, Math.sin(angle));
+        const s = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 2));
+        const e = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 20));
+        ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(e.x, e.y); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
 }
 
 export class GasCanSkill extends Skill {
   constructor() { super(); this.nextStart = 2.0; this.phase = 'idle'; this.chargeEnd = 0; this.boostEnd = 0; this.hitCooldown = 0.38; this.nextHit = new Map(); }
   update(owner, game, dt, matchTime) {
-    if (this.phase === 'idle' && matchTime >= this.nextStart) { this.phase = 'charge'; this.chargeEnd = matchTime + 1.0; owner.addStun(1.0, matchTime); }
-    if (this.phase === 'charge' && matchTime >= this.chargeEnd) { this.phase = 'boost'; this.boostEnd = matchTime + 2.0; owner.radius = 42; owner.vel = safeNormalize(owner.vel).scale(owner.baseSpeed * 2.5); owner.externalForceUntil = this.boostEnd; }
+    if (this.phase === 'idle' && matchTime >= this.nextStart) { this.phase = 'charge'; this.chargeEnd = matchTime + 1.0; owner.radius = 42; }
+    if (this.phase === 'charge' && matchTime >= this.chargeEnd) { this.phase = 'boost'; this.boostEnd = matchTime + 2.0; this.nextStart = matchTime + 5.0; owner.radius = 42; owner.vel = randomUnitVector().scale(owner.currentSpeed(matchTime)); owner.externalForceUntil = matchTime + 0.22; }
     if (this.phase === 'boost') {
       owner.radius = 42;
       if (owner.vel.length() < owner.baseSpeed * 2.5 * 0.8) owner.vel = safeNormalize(owner.vel).scale(owner.baseSpeed * 2.5);
@@ -907,18 +1377,43 @@ export class GasCanSkill extends Skill {
         ball.vel = knock.scale(1350);
         ball.externalForceUntil = matchTime + 0.70;
       }
-      if (matchTime >= this.boostEnd) { this.phase = 'idle'; owner.radius = owner.role.radius ?? BALL_RADIUS; this.nextStart = matchTime + 2.0; }
+      if (matchTime >= this.boostEnd) { this.phase = 'idle'; owner.radius = owner.role.radius ?? BALL_RADIUS; }
     }
   }
   speedMultiplier(owner, matchTime) { return this.phase === 'boost' ? 2.5 : 1; }
+  currentRadius(owner, matchTime, baseRadius) { return this.phase === 'charge' || this.phase === 'boost' ? 42 : baseRadius; }
   draw(owner, game, ctx) {
-    if (this.phase === 'idle') return;
+    const boosting = this.phase === 'boost';
+    const charging = this.phase === 'charge';
+    const w = (boosting || charging) ? 54 : 38;
+    const h = (boosting || charging) ? 66 : 44;
+    const x = owner.pos.x - w / 2;
+    const y = owner.pos.y - h / 2;
     ctx.save();
-    ctx.strokeStyle = this.phase === 'charge' ? COLORS.yellow : COLORS.orange;
-    ctx.lineWidth = this.phase === 'charge' ? 3 : 6;
-    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 7, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = charging ? COLORS.yellow : boosting ? COLORS.orange : COLORS.gasOrange;
+    ctx.strokeStyle = COLORS.black;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect?.(x, y, w, h, 10);
+    if (!ctx.roundRect) ctx.rect(x, y, w, h);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b4b4be'; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    const vx = owner.pos.x - w * 0.225, vy = y - 7, vw = w * 0.45, vh = 10;
+    ctx.beginPath(); ctx.roundRect?.(vx, vy, vw, vh, 4); if (!ctx.roundRect) ctx.rect(vx, vy, vw, vh); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + 8, owner.pos.y); ctx.lineTo(x + w - 8, owner.pos.y); ctx.stroke();
+    if (boosting) {
+      const dir = safeNormalize(owner.vel);
+      const perp = dir.perp();
+      const tail = Vec2.add(owner.pos, Vec2.scale(dir, -(h * 0.45 + 8)));
+      for (const [scale, color, width] of [[30, COLORS.yellow, 12], [44, COLORS.orange, 8], [60, COLORS.red, 5]]) {
+        const tip = Vec2.add(tail, Vec2.scale(dir, -scale));
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.moveTo(tail.x + perp.x * width, tail.y + perp.y * width); ctx.lineTo(tail.x - perp.x * width, tail.y - perp.y * width); ctx.lineTo(tip.x, tip.y); ctx.closePath(); ctx.fill();
+      }
+    }
     ctx.restore();
   }
+
 }
 
 export class HandSkill extends Skill {
@@ -955,7 +1450,6 @@ export class HandSkill extends Skill {
       this.hold = ball;
       this.holdEnd = matchTime + 1.0;
       ball.heldBy = owner;
-      ball.addStun(1.0, matchTime);
       break;
     }
   }
@@ -963,6 +1457,11 @@ export class HandSkill extends Skill {
     const hp = this.handPos(owner, game);
     ctx.save();
     ctx.fillStyle = COLORS.handSkin; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    const wristStart = Vec2.add(owner.pos, Vec2.scale(this.handDir, owner.radius + 3));
+    const wristEnd = Vec2.add(hp, Vec2.scale(this.handDir, -this.handRadius));
+    ctx.lineWidth = 8; ctx.strokeStyle = COLORS.handSkin; ctx.beginPath(); ctx.moveTo(wristStart.x, wristStart.y); ctx.lineTo(wristEnd.x, wristEnd.y); ctx.stroke();
+    ctx.lineWidth = 1; ctx.strokeStyle = COLORS.black; ctx.stroke();
+    ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(hp.x, hp.y, this.handRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     const perp = this.handDir.perp();
     for (const off of [-14, -5, 5, 14]) { const base = Vec2.add(hp, Vec2.scale(perp, off)); ctx.beginPath(); ctx.ellipse(base.x + this.handDir.x * 15, base.y + this.handDir.y * 15, 5, 12, Math.atan2(this.handDir.y, this.handDir.x), 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
@@ -998,7 +1497,7 @@ class DragonPassHazardWeb extends Hazard {
   draw(ctx) {
     const a = Vec2.add(this.trackCenter, Vec2.scale(this.dir, -this.warnHalf)); const b = Vec2.add(this.trackCenter, Vec2.scale(this.dir, this.warnHalf));
     ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(120,70,25,.85)'; ctx.lineWidth = this.trackWidth; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.strokeStyle = COLORS.yellow; ctx.lineWidth = 3; ctx.stroke();
-    if (this.drawTime >= this.created + this.warn) { const { tail, head } = this.segment(this.drawTime); ctx.strokeStyle = COLORS.red; ctx.lineWidth = this.trackWidth * 0.78; ctx.beginPath(); ctx.moveTo(tail.x, tail.y); ctx.lineTo(head.x, head.y); ctx.stroke(); ctx.strokeStyle = COLORS.orange; ctx.lineWidth = this.trackWidth * 0.42; ctx.stroke(); const left = Vec2.add(Vec2.add(head, Vec2.scale(this.dir, -34)), Vec2.scale(this.perp, 22)); const right = Vec2.add(Vec2.add(head, Vec2.scale(this.dir, -34)), Vec2.scale(this.perp, -22)); ctx.fillStyle = COLORS.yellow; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(head.x + this.dir.x * 20, head.y + this.dir.y * 20); ctx.lineTo(left.x, left.y); ctx.lineTo(right.x, right.y); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    if (this.drawTime >= this.created + this.warn) { const { tail, head } = this.segment(this.drawTime); ctx.strokeStyle = COLORS.red; ctx.lineWidth = this.trackWidth * 0.78; ctx.beginPath(); ctx.moveTo(tail.x, tail.y); ctx.lineTo(head.x, head.y); ctx.stroke(); ctx.strokeStyle = COLORS.orange; ctx.lineWidth = this.trackWidth * 0.42; ctx.stroke(); ctx.fillStyle = COLORS.yellow; for (let i = 0; i <= 10; i++) { const p = tail.lerp(head, i / 10); ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill(); } const left = Vec2.add(Vec2.add(head, Vec2.scale(this.dir, -34)), Vec2.scale(this.perp, 22)); const right = Vec2.add(Vec2.add(head, Vec2.scale(this.dir, -34)), Vec2.scale(this.perp, -22)); ctx.fillStyle = COLORS.yellow; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(head.x + this.dir.x * 20, head.y + this.dir.y * 20); ctx.lineTo(left.x, left.y); ctx.lineTo(right.x, right.y); ctx.closePath(); ctx.fill(); ctx.stroke(); }
     ctx.restore();
   }
 }
@@ -1006,6 +1505,17 @@ class DragonPassHazardWeb extends Hazard {
 export class DragonHeirSkill extends Skill {
   constructor() { super(); this.nextCast = 1.5; this.cooldown = 5.0; }
   update(owner, game, dt, matchTime) { if (matchTime < this.nextCast) return; this.nextCast = matchTime + this.cooldown; game.hazards.push(new DragonPassHazardWeb(owner, game.arena, matchTime)); }
+
+  draw(owner, game, ctx) {
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.strokeStyle = COLORS.yellow; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(owner.pos.x - 14, owner.pos.y - owner.radius - 4); ctx.lineTo(owner.pos.x - 24, owner.pos.y - owner.radius - 20); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(owner.pos.x + 14, owner.pos.y - owner.radius - 4); ctx.lineTo(owner.pos.x + 24, owner.pos.y - owner.radius - 20); ctx.stroke();
+    ctx.strokeStyle = COLORS.orange; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(owner.pos.x - owner.radius, owner.pos.y + 4); ctx.lineTo(owner.pos.x - owner.radius - 22, owner.pos.y + 12); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(owner.pos.x + owner.radius, owner.pos.y + 4); ctx.lineTo(owner.pos.x + owner.radius + 22, owner.pos.y + 12); ctx.stroke();
+    ctx.restore();
+  }
 }
 
 class FootprintHazardWeb extends Hazard {
@@ -1015,7 +1525,11 @@ class FootprintHazardWeb extends Hazard {
   draw(ctx) { const active = this.drawTime >= this.created + this.warn; ctx.save(); ctx.fillStyle = active ? COLORS.footPink : 'rgba(255,220,245,.28)'; ctx.strokeStyle = active ? COLORS.black : COLORS.footPink; ctx.lineWidth = active ? 2 : 3; const sole = Vec2.add(this.pos, Vec2.scale(this.dir, -12)); ctx.beginPath(); for (let i = 0; i < 40; i++) { const t = i / 40 * Math.PI * 2; const p = Vec2.add(Vec2.add(sole, Vec2.scale(this.perp, Math.cos(t) * this.footWidth / 2)), Vec2.scale(this.dir, Math.sin(t) * this.footLength / 2)); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); } ctx.closePath(); if (active) ctx.fill(); ctx.stroke(); const toeBase = Vec2.add(this.pos, Vec2.scale(this.dir, this.footLength * 0.48)); for (const [off, scale] of [[-0.36,0.82],[-0.12,1.0],[0.12,0.96],[0.36,0.78]]) { const c = Vec2.add(toeBase, Vec2.scale(this.perp, off * this.footWidth)); ctx.beginPath(); ctx.arc(c.x, c.y, this.toeRadius * scale, 0, Math.PI * 2); if (active) ctx.fill(); ctx.stroke(); } ctx.restore(); }
 }
 
-export class JadeFootSkill extends Skill { constructor() { super(); this.nextCast = 1.5; this.cooldown = 6.0; } update(owner, game, dt, matchTime) { if (matchTime < this.nextCast) return; this.nextCast = matchTime + this.cooldown; game.hazards.push(new FootprintHazardWeb(owner, game.arena, matchTime)); } }
+export class JadeFootSkill extends Skill { constructor() { super(); this.nextCast = 1.5; this.cooldown = 6.0; } update(owner, game, dt, matchTime) { if (matchTime < this.nextCast) return; this.nextCast = matchTime + this.cooldown; game.hazards.push(new FootprintHazardWeb(owner, game.arena, matchTime)); } 
+  draw(owner, game, ctx) {
+    drawTinyFoot(ctx, new Vec2(owner.pos.x + owner.radius + 14, owner.pos.y));
+  }
+}
 
 class WaveRingHazardWeb extends Hazard {
   constructor(owner, pos, matchTime) { super(owner); this.pos = pos.clone(); this.created = matchTime; this.growth = 430; this.width = 15; this.hit = new Set(); this.pushed = new Map(); this.drawTime = matchTime; this.despawn = null; }
@@ -1027,11 +1541,20 @@ class WaveRingHazardWeb extends Hazard {
   }
   draw(ctx) { const r = this.radiusAt(this.drawTime); ctx.save(); ctx.strokeStyle = COLORS.waveBlue; ctx.lineWidth = this.width; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, r, 0, Math.PI * 2); ctx.stroke(); ctx.strokeStyle = COLORS.white; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); }
 }
-export class WaveSkill extends Skill { constructor() { super(); this.nextCast = 1.2; this.cooldown = 4.0; } update(owner, game, dt, matchTime) { if (matchTime < this.nextCast) return; this.nextCast = matchTime + this.cooldown; game.hazards.push(new WaveRingHazardWeb(owner, owner.pos, matchTime)); } }
+export class WaveSkill extends Skill { constructor() { super(); this.nextCast = 1.2; this.cooldown = 4.0; } update(owner, game, dt, matchTime) { if (matchTime < this.nextCast) return; this.nextCast = matchTime + this.cooldown; game.hazards.push(new WaveRingHazardWeb(owner, owner.pos, matchTime)); } 
+  draw(owner, game, ctx) {
+    ctx.save(); ctx.strokeStyle = COLORS.waveBlue; ctx.lineWidth = 3;
+    for (const [r, s, e, w] of [[owner.radius + 7, 0.2, 2.6, 3], [owner.radius + 13, 3.3, 5.8, 2]]) {
+      ctx.lineWidth = w;
+      ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, r, s, e); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
 
 class FlowerbedHazardWeb extends Hazard {
   constructor(owner, pos) { super(owner); this.pos = pos.clone(); this.radius = 42; this.touching = new Set(); }
-  update(game, dt, matchTime) { const nowTouching = new Set(); for (const ball of game.balls) { if (ball.hp <= 0 || ball === this.owner || game.areAllies(ball, this.owner)) continue; const touching = circleHit(this.pos, this.radius, ball.pos, ball.radius); if (touching) { nowTouching.add(ball.uid); if (!this.touching.has(ball.uid)) { ball.flowerbedSlow = Math.min(0.95, (ball.flowerbedSlow || 0) + 0.02); game.addFloatingText(ball.pos, '-SPD', 'damage'); } } } this.touching = nowTouching; }
+  update(game, dt, matchTime) { const nowTouching = new Set(); for (const ball of game.balls) { if (ball.hp <= 0 || ball === this.owner) continue; const touching = circleHit(this.pos, this.radius, ball.pos, ball.radius); if (touching) { nowTouching.add(ball.uid); if (!this.touching.has(ball.uid)) { ball.flowerbedSlow = Math.min(0.95, (ball.flowerbedSlow || 0) + 0.02); } } } this.touching = nowTouching; }
   draw(ctx) { ctx.save(); ctx.strokeStyle = COLORS.flowerPink; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = COLORS.flowerPink; for (let i = 0; i < 8; i++) { const a = i * Math.PI * 2 / 8; ctx.beginPath(); ctx.arc(this.pos.x + Math.cos(a) * 22, this.pos.y + Math.sin(a) * 22, 8, 0, Math.PI * 2); ctx.fill(); } ctx.fillStyle = COLORS.cressonPink; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, 11, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
 }
 
@@ -1046,12 +1569,34 @@ export class CressonSkill extends Skill {
   constructor() { super(); this.nextTeleport = 3.0; this.teleports = 0; this.doomed = false; }
   update(owner, game, dt, matchTime) {
     owner.vel = new Vec2(0, 0);
-    if (!this.doomed && (this.teleports >= 20 || matchTime >= 60.0)) { this.doomed = true; game.hazards.push(new CressonDoomWaveHazardWeb(owner, owner.pos, matchTime)); }
-    if (matchTime < this.nextTeleport) return;
-    this.nextTeleport = matchTime + 3.0;
-    this.teleports += 1;
-    game.hazards.push(new FlowerbedHazardWeb(owner, owner.pos));
-    owner.pos = randomPointInRect(game.arena, BALL_RADIUS + 10);
+    owner.externalForceUntil = 0;
+    while (matchTime >= this.nextTeleport && !this.doomed) {
+      game.hazards.push(new FlowerbedHazardWeb(owner, owner.pos));
+      owner.pos = randomPointInRect(game.arena, owner.radius + 8);
+      owner.vel = new Vec2(0, 0);
+      this.teleports += 1;
+      this.nextTeleport += 3.0;
+      if (this.teleports >= 20 || matchTime >= 60.0) {
+        this.doomed = true;
+        game.hazards.push(new CressonDoomWaveHazardWeb(owner, owner.pos, matchTime));
+        break;
+      }
+    }
+  }
+
+  draw(owner, game, ctx) {
+    this.jitterPhase = (this.jitterPhase ?? Math.random() * Math.PI * 2) + 0.35;
+    ctx.save();
+    ctx.fillStyle = COLORS.cressonPink;
+    for (let i = 0; i < 7; i++) {
+      const a = this.jitterPhase + i * Math.PI * 2 / 7;
+      const off = new Vec2(Math.cos(a * 2.1), Math.sin(a * 1.7)).scale(2 + Math.random() * 4);
+      const p = Vec2.add(Vec2.add(owner.pos, Vec2.scale(new Vec2(Math.cos(a), Math.sin(a)), owner.radius + 10)), off);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.strokeStyle = COLORS.flowerPink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -1080,9 +1625,6 @@ export class SlimeSkill extends Skill {
     this.lastHit.set(other.uid, matchTime + this.bodyCooldown);
     const dmg = this.stats().damage;
     other.takeDamage(dmg, game, owner, matchTime);
-    const knock = safeNormalize(Vec2.sub(other.pos, owner.pos));
-    other.vel = knock.scale(Math.max(other.currentSpeed(matchTime), 520));
-    other.externalForceUntil = matchTime + 0.22;
     return true;
   }
   onDeath(owner, game, matchTime) {
@@ -1095,18 +1637,33 @@ export class SlimeSkill extends Skill {
       { hp: 5, radius: 16 }
     ][nextLevel];
     for (let i = 0; i < 3; i++) {
-      const angle = Math.random() * Math.PI * 2;
+      const angle = i * Math.PI * 2 / 3 + (Math.random() * 0.5 - 0.25);
       const dir = new Vec2(Math.cos(angle), Math.sin(angle));
       const pos = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + nextStats.radius + 4));
-      const child = game.spawnRole('slime', pos, `${owner.label}s${i + 1}`, owner.teamId, {
+      const child = game.spawnRole('slime', pos, `${owner.label}.${i + 1}`, owner.teamId, {
         hp: nextStats.hp,
         radius: nextStats.radius,
         speed: BALL_SPEED * 0.95,
         level: nextLevel,
-        vel: dir.scale(BALL_SPEED * 0.95)
+        vel: safeNormalize(Vec2.add(dir, Vec2.scale(randomUnitVector(), 0.35))).scale(BALL_SPEED * 0.95)
       });
       child.skill.level = nextLevel;
     }
+  }
+
+  draw(owner, game, ctx) {
+    const r = owner.radius;
+    ctx.save();
+    ctx.strokeStyle = COLORS.slimeDark;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, r + 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = COLORS.white;
+    ctx.lineWidth = 1;
+    for (const [ox, oy] of [[-0.55,-0.55],[0.55,-0.40],[-0.45,0.45],[0.48,0.55]]) {
+      const c = new Vec2(owner.pos.x + ox * r, owner.pos.y + oy * r);
+      ctx.beginPath(); ctx.arc(c.x, c.y, Math.max(2, Math.floor(r * 0.13)), 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 
@@ -1124,8 +1681,20 @@ export class GuardSkill extends Skill {
     other.takeDamage(this.damage, game, owner, matchTime);
     const knock = safeNormalize(Vec2.sub(other.pos, owner.pos));
     other.vel = knock.scale(Math.max(other.currentSpeed(matchTime), 520));
-    other.externalForceUntil = matchTime + 0.22;
+    other.externalForceUntil = matchTime + 0.15;
     return true;
+  }
+
+  draw(owner, game, ctx) {
+    ctx.save();
+    const shield = new Vec2(owner.pos.x - owner.radius - 10, owner.pos.y);
+    ctx.fillStyle = COLORS.guardNavy; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(shield.x, shield.y, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const s = new Vec2(owner.pos.x + owner.radius + 4, owner.pos.y + 8);
+    const e = new Vec2(owner.pos.x + owner.radius + 30, owner.pos.y - 10);
+    ctx.strokeStyle = COLORS.swordSilver; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(e.x, e.y); ctx.stroke();
+    ctx.strokeStyle = COLORS.black; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -1143,12 +1712,13 @@ export class KingSkill extends Skill {
   summonGuard(owner, game, matchTime) {
     this.guardCount += 1;
     const dir = randomUnitVector();
-    const pos = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 30));
+    const guardRadius = 24;
+    const pos = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + guardRadius + 12));
     const guard = game.spawnRole('guard', pos, `${owner.label}G${this.guardCount}`, owner.teamId, {
       hp: 30,
-      radius: 24,
+      radius: guardRadius,
       speed: BALL_SPEED * 0.92,
-      vel: dir.scale(BALL_SPEED * 0.92)
+      vel: safeNormalize(Vec2.add(dir, Vec2.scale(randomUnitVector(), 0.35))).scale(BALL_SPEED * 0.92)
     });
     this.guards.push(guard);
     return guard;
@@ -1161,8 +1731,8 @@ export class KingSkill extends Skill {
       this.summonGuard(owner, game, matchTime);
       this.nextSummon = matchTime + 7.5;
     }
-    if (matchTime >= this.nextSummon) {
-      this.nextSummon = matchTime + 7.5;
+    while (matchTime >= this.nextSummon) {
+      this.nextSummon += 7.5;
       this.summonGuard(owner, game, matchTime);
     }
   }
@@ -1174,21 +1744,20 @@ export class KingSkill extends Skill {
     return true;
   }
   onDeath(owner, game, matchTime) {
-    for (const guard of this.guards) {
-      if (guard.hp > 0) {
-        guard.hp = 0;
-        game.addFloatingText(guard.pos, '-KO', 'damage');
+    for (const ball of game.balls) {
+      if (ball !== owner && ball.hp > 0 && game.areAllies(ball, owner) && ball.role.id === 'guard') {
+        ball.takeDamage(ball.hp, game, owner, matchTime);
+        ball.deathProcessed = true;
       }
     }
   }
   draw(owner, game, ctx) {
-    ctx.save();
-    ctx.fillStyle = COLORS.kingGold;
-    ctx.font = 'bold 12px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(`G:${this.guards.filter(g => g.hp > 0).length}`, owner.pos.x, owner.pos.y - owner.radius - 16);
-    ctx.restore();
+    const b = new Vec2(owner.pos.x, owner.pos.y - owner.radius - 8);
+    const pts = [new Vec2(-20,8), new Vec2(-14,-10), new Vec2(-4,4), new Vec2(0,-14), new Vec2(4,4), new Vec2(14,-10), new Vec2(20,8)].map(p => new Vec2(b.x+p.x, b.y+p.y));
+    ctx.save(); ctx.fillStyle = COLORS.kingGold; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.fill(); ctx.stroke(); ctx.restore();
   }
+
 }
 
 export class LiBaiSkill extends Skill {
@@ -1226,13 +1795,21 @@ export class LiBaiSkill extends Skill {
     return true;
   }
   draw(owner, game, ctx) {
-    if (owner.lastMatchTime >= this.rageEnd) return;
+    const g = new Vec2(owner.pos.x + owner.radius + 14, owner.pos.y - owner.radius * 0.25);
     ctx.save();
-    ctx.strokeStyle = COLORS.winePurple;
-    ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = COLORS.winePurple; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(g.x, g.y, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(g.x, g.y - 13, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    if (owner.lastMatchTime < this.rageEnd) {
+      ctx.strokeStyle = COLORS.red; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 13, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = COLORS.orange;
+      for (const a of [0.2, 1.7, 3.2, 4.7]) {
+        ctx.beginPath(); ctx.moveTo(owner.pos.x + Math.cos(a) * (owner.radius + 15), owner.pos.y + Math.sin(a) * (owner.radius + 15)); ctx.lineTo(owner.pos.x + Math.cos(a) * (owner.radius + 30), owner.pos.y + Math.sin(a) * (owner.radius + 30)); ctx.stroke();
+      }
+    }
     ctx.restore();
   }
+
 }
 
 class PoopBowlHazardWeb extends Hazard {
@@ -1277,7 +1854,15 @@ class FartRingHazardWeb extends Hazard {
     const progress = clamp((this.drawTime - this.created) / 0.65, 0, 1);
     const r = Math.max(8, this.radius * (0.35 + 0.65 * progress));
     ctx.save(); ctx.strokeStyle = COLORS.fartGreen; ctx.lineWidth = 12; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, r, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = COLORS.fartDark; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, Math.max(2, r - 22), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    ctx.strokeStyle = COLORS.fartDark; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, Math.max(2, r - 22), 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 7; i++) {
+      const a = progress * Math.PI * 2 * 1.6 + i * Math.PI * 2 / 7;
+      const x = this.pos.x + Math.cos(a) * r;
+      const y = this.pos.y + Math.sin(a) * r;
+      ctx.fillStyle = COLORS.fartGreen; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = COLORS.fartDark; ctx.lineWidth = 1; ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 
@@ -1288,10 +1873,19 @@ export class ChiFoodGodSkill extends Skill {
   update(owner, game, dt, matchTime) {
     if (!this.spawnedBowls) {
       this.spawnedBowls = true;
-      for (let i = 0; i < 5; i++) game.hazards.push(new PoopBowlHazardWeb(owner, randomPointInRect(game.arena, BALL_RADIUS + 30)));
+      for (let i = 0; i < 5; i++) {
+        let pos = randomPointInRect(game.arena, 50);
+        for (let attempt = 0; attempt < 30; attempt++) {
+          const tooCloseOwner = pos.distanceTo(owner.pos) < owner.radius + 65;
+          const tooCloseBowl = game.hazards.some(h => h instanceof PoopBowlHazardWeb && h.pos.distanceTo(pos) < 48);
+          if (!tooCloseOwner && !tooCloseBowl) break;
+          pos = randomPointInRect(game.arena, 50);
+        }
+        game.hazards.push(new PoopBowlHazardWeb(owner, pos));
+      }
     }
-    if (matchTime >= this.nextFart) {
-      this.nextFart = matchTime + this.fartCooldown;
+    while (matchTime >= this.nextFart) {
+      this.nextFart += this.fartCooldown;
       game.hazards.push(new FartRingHazardWeb(owner, owner.pos, 125, 1 + this.damageBonus, matchTime));
     }
   }
@@ -1302,12 +1896,31 @@ export class ChiFoodGodSkill extends Skill {
     return true;
   }
   draw(owner, game, ctx) {
-    ctx.save(); ctx.fillStyle = COLORS.white; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillText(`碗×${this.eaten}`, owner.pos.x, owner.pos.y - owner.radius - 15); ctx.restore();
+    this.gasSpin = (this.gasSpin ?? Math.random() * Math.PI * 2) + 0.08;
+    const mouthW = owner.radius + 22;
+    const mouth = new Vec2(owner.pos.x, owner.pos.y + owner.radius + 5);
+    ctx.save();
+    ctx.fillStyle = COLORS.black;
+    ctx.beginPath(); ctx.ellipse(mouth.x, mouth.y, mouthW / 2, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = COLORS.white; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(mouth.x, mouth.y, (mouthW - 4) / 2, 0, Math.PI); ctx.stroke();
+    const s = new Vec2(owner.pos.x + owner.radius * 0.72, owner.pos.y - owner.radius * 0.25);
+    const e = new Vec2(owner.pos.x + owner.radius + 30, owner.pos.y - owner.radius - 10);
+    ctx.strokeStyle = '#b4b4be'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(e.x, e.y); ctx.stroke();
+    ctx.fillStyle = COLORS.bowlCream; ctx.strokeStyle = COLORS.black; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(e.x, e.y, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      const a = this.gasSpin + i * Math.PI * 2 / 3;
+      const q = new Vec2(owner.pos.x + Math.cos(a) * (owner.radius + 18), owner.pos.y + Math.sin(a) * (owner.radius + 18));
+      ctx.fillStyle = COLORS.fartGreen; ctx.beginPath(); ctx.arc(q.x, q.y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = COLORS.fartDark; ctx.stroke();
+    }
+    ctx.restore();
   }
+
 }
 
 class GlitchTextProjectile extends Projectile {
-  constructor(owner, pos, direction) { super(owner); this.pos = pos.clone(); this.vel = safeNormalize(direction).scale(245); this.radius = 12; this.text = ['@#%', 'LOL', '???', '烦'][Math.floor(Math.random() * 4)]; }
+  constructor(owner, pos, direction) { super(owner); this.pos = pos.clone(); this.vel = safeNormalize(direction).scale(245); this.radius = 12; this.text = ['#@~', '%*$', '&Ⅲ', '!?%', '@#&', '～$*'][Math.floor(Math.random() * 6)]; }
   update(game, dt, matchTime) {
     this.pos.add(Vec2.scale(this.vel, dt));
     if (this.pos.x < game.arena.left - 40 || this.pos.x > game.arena.right + 40 || this.pos.y < game.arena.top - 40 || this.pos.y > game.arena.bottom + 40) { this.alive = false; return; }
@@ -1323,99 +1936,275 @@ class GlitchTextProjectile extends Projectile {
 export class AnnoyingOrangeSkill extends Skill {
   constructor() { super(); this.nextFire = 0.4; this.cooldown = 0.2; }
   update(owner, game, dt, matchTime) {
-    if (matchTime < this.nextFire) return;
-    const enemy = game.nearestEnemy(owner); if (!enemy) return;
-    this.nextFire = matchTime + this.cooldown;
-    const dir = safeNormalize(Vec2.sub(enemy.pos, owner.pos));
-    const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 14));
-    game.projectiles.push(new GlitchTextProjectile(owner, start, dir));
+    while (matchTime >= this.nextFire) {
+      this.nextFire += this.cooldown;
+      const enemy = game.nearestEnemy(owner); if (!enemy) break;
+      const dir = safeNormalize(Vec2.sub(enemy.pos, owner.pos));
+      const start = Vec2.add(owner.pos, Vec2.scale(dir, owner.radius + 17));
+      game.projectiles.push(new GlitchTextProjectile(owner, start, dir));
+    }
+  }
+
+  draw(owner, game, ctx) {
+    ctx.save();
+    ctx.strokeStyle = COLORS.annoyingOrange; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 5, 0, Math.PI * 2); ctx.stroke();
+    const left = new Vec2(owner.pos.x - 14, owner.pos.y - owner.radius - 5);
+    const right = new Vec2(owner.pos.x + 14, owner.pos.y - owner.radius - 5);
+    ctx.fillStyle = COLORS.white; ctx.beginPath(); ctx.arc(left.x, left.y, 6, 0, Math.PI * 2); ctx.arc(right.x, right.y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = COLORS.black; ctx.beginPath(); ctx.arc(left.x, left.y, 3, 0, Math.PI * 2); ctx.arc(right.x, right.y, 3, 0, Math.PI * 2); ctx.fill();
+    const mouth = new Vec2(owner.pos.x, owner.pos.y + owner.radius + 8);
+    ctx.strokeStyle = COLORS.black; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(mouth.x, mouth.y, 16, 0, Math.PI); ctx.stroke();
+    ctx.restore();
   }
 }
 
 export class QuicksilverSkill extends Skill {
-  constructor() { super(); this.bound = null; this.cooldownUntil = 0; this.bindDir = new Vec2(1, 0); this.startPos = null; }
-  onBodyCollision(owner, other, game, matchTime) {
-    if (this.bound || matchTime < this.cooldownUntil || other.heldBy) return false;
-    this.bound = other; this.bindDir = safeNormalize(owner.vel); this.startPos = owner.pos.clone();
-    other.heldBy = owner; other.addStun(5.0, matchTime); owner.externalForceUntil = matchTime + 10;
+  constructor() {
+    super();
+    this.boundTarget = null;
+    this.boundOffset = new Vec2(0, 0);
+    this.bindStartPos = null;
+    this.bindDirection = new Vec2(1, 0);
+    this.wallDamageDone = false;
+    this.bindCooldown = 2.0;
+    this.nextBindTime = 0.0;
+  }
+  onBodyCollision(owner, target, game, matchTime) {
+    if (this.boundTarget || target.hp <= 0 || target.heldBy || matchTime < this.nextBindTime) return false;
+    const originalVel = owner.preCollisionVel || owner.vel;
+    this.bindDirection = safeNormalize(originalVel);
+    this.boundTarget = target;
+    this.boundOffset = Vec2.scale(this.bindDirection, owner.radius + target.radius + 3);
+    this.bindStartPos = owner.pos.clone();
+    this.wallDamageDone = false;
+    target.heldBy = owner;
+    target.vel = new Vec2(0, 0);
+    target.pos = Vec2.add(owner.pos, this.boundOffset);
+    owner.vel = this.bindDirection.clone().scale(owner.currentSpeed(matchTime));
+    owner.externalForceUntil = matchTime + 0.18;
     return true;
   }
-  update(owner, game, dt, matchTime) {
-    if (!this.bound) return;
-    if (this.bound.hp <= 0 || owner.hp <= 0) { this.release(owner, matchTime); return; }
-    owner.vel = this.bindDir.clone().scale(owner.currentSpeed(matchTime));
-    const gap = owner.radius + this.bound.radius + 3;
-    this.bound.pos = Vec2.add(owner.pos, Vec2.scale(this.bindDir, gap));
-    this.bound.vel = owner.vel.clone();
-    this.bound.externalForceUntil = matchTime + 0.2;
+  releaseTarget() {
+    if (this.boundTarget) this.boundTarget.heldBy = null;
+    this.boundTarget = null;
   }
-  release(owner, matchTime) {
-    if (!this.bound) return;
-    this.bound.heldBy = null;
-    this.bound = null;
-    this.cooldownUntil = matchTime + 2.0;
+  reboundDirection(owner, target, game, wall = null) {
+    const direction = this.bindDirection.clone();
+    if (wall === 'left' || wall === 'right') direction.x *= -1;
+    else if (wall === 'top' || wall === 'bottom') direction.y *= -1;
+    else {
+      const a = game.arena;
+      const minX = Math.min(owner.pos.x - owner.radius, target.pos.x - target.radius);
+      const maxX = Math.max(owner.pos.x + owner.radius, target.pos.x + target.radius);
+      const minY = Math.min(owner.pos.y - owner.radius, target.pos.y - target.radius);
+      const maxY = Math.max(owner.pos.y + owner.radius, target.pos.y + target.radius);
+      if (minX <= a.left || maxX >= a.right) direction.x *= -1;
+      if (minY <= a.top || maxY >= a.bottom) direction.y *= -1;
+    }
+    return safeNormalize(direction);
   }
-  onWallBounce(owner, wall, game, matchTime) {
-    if (!this.bound) return;
-    const moved = owner.pos.distanceTo(this.startPos || owner.pos);
-    const ratio = moved / (ARENA_SIZE / 2);
-    const speedRatio = Math.max(1, owner.currentSpeed(matchTime) / BALL_SPEED);
-    const damage = Math.max(1, ratio * speedRatio * 10);
-    const target = this.bound;
-    target.takeDamage(damage, game, owner, matchTime);
-    target.heldBy = null;
-    target.vel = randomUnitVector().scale(1350);
-    target.externalForceUntil = matchTime + 0.75;
-    this.bound = null;
-    this.cooldownUntil = matchTime + 2.0;
-    owner.vel = safeNormalize(owner.vel).scale(Math.max(BALL_SPEED * 1.35, owner.currentSpeed(matchTime)));
+  crashIntoWall(owner, matchTime, game, wall = null) {
+    const target = this.boundTarget;
+    if (!target) return;
+    if (!this.wallDamageDone && owner.hp > 0 && target.hp > 0) {
+      this.wallDamageDone = true;
+      const dist = this.bindStartPos ? owner.pos.distanceTo(this.bindStartPos) : 0;
+      const ratio = dist / (ARENA_SIZE / 2);
+      const currentSpeed = Math.max(owner.vel.length(), owner.currentSpeed(matchTime));
+      const speedRatio = currentSpeed / BALL_SPEED;
+      target.takeDamage(Math.max(1, ratio * speedRatio * 10), game, owner, matchTime);
+    }
+    const throwDir = randomUnitVector();
+    const rebound = this.reboundDirection(owner, target, game, wall);
+    this.nextBindTime = matchTime + this.bindCooldown;
+    this.releaseTarget();
+    if (target.hp > 0) {
+      target.vel = throwDir.scale(1350);
+      target.externalForceUntil = matchTime + 0.75;
+    }
+    owner.vel = rebound.scale(Math.max(owner.currentSpeed(matchTime), BALL_SPEED * 1.35));
     owner.externalForceUntil = matchTime + 0.35;
+    const a = game.arena;
+    owner.pos.x = clamp(owner.pos.x, a.left + owner.radius, a.right - owner.radius);
+    owner.pos.y = clamp(owner.pos.y, a.top + owner.radius, a.bottom - owner.radius);
+    if (target.hp > 0) {
+      target.pos.x = clamp(target.pos.x, a.left + target.radius, a.right - target.radius);
+      target.pos.y = clamp(target.pos.y, a.top + target.radius, a.bottom - target.radius);
+    }
+  }
+  onWallBounce(owner, wall, game, matchTime) { if (this.boundTarget) this.crashIntoWall(owner, matchTime, game, wall); }
+  update(owner, game, dt, matchTime) {
+    const target = this.boundTarget;
+    if (!target) return;
+    if (owner.hp <= 0 || target.hp <= 0) { this.nextBindTime = matchTime + this.bindCooldown; this.releaseTarget(); return; }
+    const speed = owner.currentSpeed(matchTime);
+    owner.vel = this.bindDirection.clone().scale(speed);
+    target.pos = Vec2.add(owner.pos, this.boundOffset);
+    target.vel = owner.vel.clone();
+    const a = game.arena;
+    const minX = Math.min(owner.pos.x - owner.radius, target.pos.x - target.radius);
+    const maxX = Math.max(owner.pos.x + owner.radius, target.pos.x + target.radius);
+    const minY = Math.min(owner.pos.y - owner.radius, target.pos.y - target.radius);
+    const maxY = Math.max(owner.pos.y + owner.radius, target.pos.y + target.radius);
+    let wall = null;
+    if (minX <= a.left) wall = 'left'; else if (maxX >= a.right) wall = 'right'; else if (minY <= a.top) wall = 'top'; else if (maxY >= a.bottom) wall = 'bottom';
+    if (wall) this.crashIntoWall(owner, matchTime, game, wall);
   }
   draw(owner, game, ctx) {
-    if (!this.bound) return;
-    ctx.save(); ctx.strokeStyle = COLORS.quicksilverBlue; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(owner.pos.x, owner.pos.y); ctx.lineTo(this.bound.pos.x, this.bound.pos.y); ctx.stroke(); ctx.restore();
+    const direction = owner.vel.length() > 0 ? safeNormalize(owner.vel) : new Vec2(1, 0);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = COLORS.quicksilverBlue;
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 3; i++) {
+      const start = Vec2.add(owner.pos, Vec2.scale(direction, -(owner.radius + 8 + i * 12)));
+      const end = Vec2.add(start, Vec2.scale(direction, -16));
+      ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke();
+    }
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 8, 0, Math.PI * 2); ctx.stroke();
+    if (this.boundTarget && this.boundTarget.hp > 0) {
+      ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(owner.pos.x, owner.pos.y); ctx.lineTo(this.boundTarget.pos.x, this.boundTarget.pos.y); ctx.stroke();
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.boundTarget.pos.x, this.boundTarget.pos.y, this.boundTarget.radius + 7, 0, Math.PI * 2); ctx.stroke();
+      const arrowTip = Vec2.add(owner.pos, Vec2.scale(this.bindDirection, owner.radius + 36));
+      ctx.strokeStyle = COLORS.white; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(owner.pos.x + this.bindDirection.x * owner.radius, owner.pos.y + this.bindDirection.y * owner.radius); ctx.lineTo(arrowTip.x, arrowTip.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+class SwordSaintStrikeHazardWeb extends Hazard {
+  constructor(owner, center, radius, matchTime) {
+    super(owner);
+    this.pos = center.clone();
+    this.radius = radius;
+    this.created = matchTime;
+    this.firstDone = false;
+    this.secondDone = false;
+    this.drawTime = matchTime;
+  }
+  strike(game, matchTime, label) {
+    for (const ball of game.balls) {
+      if (ball.hp <= 0 || game.areAllies(ball, this.owner) || ball.heldBy) continue;
+      if (this.pos.distanceTo(ball.pos) <= this.radius + ball.radius) {
+        ball.takeDamage(20, game, this.owner, matchTime);
+        const knock = safeNormalize(Vec2.sub(ball.pos, this.pos));
+        ball.vel = knock.scale(1250);
+        ball.externalForceUntil = matchTime + 0.45;
+      }
+    }
+  }
+  update(game, dt, matchTime) {
+    this.drawTime = matchTime;
+    if (!this.firstDone) { this.firstDone = true; this.strike(game, matchTime, 'sky sword'); }
+    if (!this.secondDone && matchTime >= this.created + 0.5) { this.secondDone = true; this.strike(game, matchTime, 'round slash'); }
+    if (matchTime >= this.created + 1.15) this.alive = false;
+  }
+  draw(ctx) {
+    const elapsed = this.drawTime - this.created;
+    ctx.save();
+    ctx.strokeStyle = COLORS.swordAura;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI * 2); ctx.stroke();
+    const top = new Vec2(this.pos.x, this.pos.y - 150 + Math.min(elapsed, 0.35) * 280);
+    const tip = new Vec2(this.pos.x, this.pos.y + 42);
+    ctx.strokeStyle = COLORS.swordSilver; ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(top.x, top.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+    ctx.strokeStyle = COLORS.black; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = COLORS.kingGold; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(this.pos.x - 38, this.pos.y - 10); ctx.lineTo(this.pos.x + 38, this.pos.y - 10); ctx.stroke();
+    if (elapsed >= 0.5) {
+      const a = elapsed * 10;
+      const p1 = new Vec2(this.pos.x + Math.cos(a) * this.radius, this.pos.y + Math.sin(a) * this.radius);
+      const p2 = new Vec2(this.pos.x - Math.cos(a) * this.radius, this.pos.y - Math.sin(a) * this.radius);
+      ctx.strokeStyle = COLORS.swordSilver; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      ctx.strokeStyle = COLORS.white; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 
 export class SwordSaintSkill extends Skill {
-  constructor() { super(); this.state = 'idle'; this.nextStart = 4.0; this.lockCenter = null; this.stateEnd = 0; this.firstDone = false; this.secondDone = false; this.slashRadius = Math.floor(BALL_RADIUS * 4.8); }
-  airborne(matchTime) { return this.state === 'lock' || this.state === 'charge'; }
-  isUntargetable(owner, matchTime) { return this.airborne(matchTime); }
-  ignoresPhysicalCollision(owner, other, matchTime) { return this.airborne(matchTime); }
-  modifyIncomingDamage(owner, amount, source, game, matchTime) { return this.airborne(matchTime) ? 0 : amount; }
-  start(owner, game, matchTime) {
-    const enemy = game.nearestEnemy(owner);
-    this.lockCenter = enemy ? enemy.pos.clone() : randomPointInRect(game.arena, BALL_RADIUS + this.slashRadius * .5);
-    this.state = 'lock'; this.stateEnd = matchTime + 1.0; owner.addStun(1.6, matchTime);
+  constructor() {
+    super();
+    this.cooldown = 4.0;
+    this.nextCast = this.cooldown;
+    this.state = 'idle';
+    this.chargeDuration = 0.5;
+    this.fullComboDuration = 1.15;
+    this.aimStart = 0;
+    this.chargeStart = 0;
+    this.resumeMoveTime = null;
+    this.resumeMoveDone = true;
+    this.lockedTarget = null;
+    this.lockedCenter = null;
+    this.rangeRadius = Math.floor(BALL_RADIUS * 4.8);
   }
+  isUntargetable(owner, matchTime) { return this.state === 'aim' || this.state === 'charge'; }
+  isHidden(owner, matchTime) { return this.state === 'aim' || this.state === 'charge'; }
+  ignoresPhysicalCollision(owner, other, matchTime) { return this.isUntargetable(owner, matchTime); }
+  modifyIncomingDamage(owner, amount, source, game, matchTime) { return this.isUntargetable(owner, matchTime) ? 0 : amount; }
   update(owner, game, dt, matchTime) {
-    if (this.state === 'idle') { if (matchTime >= this.nextStart) this.start(owner, game, matchTime); return; }
-    if (this.state === 'lock' && matchTime >= this.stateEnd) { this.state = 'charge'; this.stateEnd = matchTime + 0.5; return; }
-    if (this.state === 'charge' && matchTime >= this.stateEnd) { owner.pos = this.lockCenter.clone(); this.state = 'slash'; this.stateEnd = matchTime + 1.15; this.firstDone = false; this.secondDone = false; }
-    if (this.state === 'slash') {
-      if (!this.firstDone) { this.firstDone = true; this.hit(owner, game, matchTime, 20); }
-      if (!this.secondDone && matchTime >= this.stateEnd - 0.65) { this.secondDone = true; this.hit(owner, game, matchTime, 20); }
-      if (matchTime >= this.stateEnd) { this.state = 'idle'; this.nextStart = matchTime + 4.0; owner.vel = randomUnitVector().scale(owner.baseSpeed); }
+    if (this.state === 'idle') {
+      if (!this.resumeMoveDone && this.resumeMoveTime != null && matchTime >= this.resumeMoveTime) {
+        owner.vel = randomUnitVector().scale(owner.currentSpeed(matchTime));
+        owner.externalForceUntil = matchTime + 0.2;
+        this.resumeMoveDone = true;
+        this.resumeMoveTime = null;
+        return;
+      }
+      const target = game.nearestEnemy(owner);
+      if (target && matchTime >= this.nextCast) {
+        this.state = 'aim';
+        this.aimStart = matchTime;
+        this.lockedTarget = target;
+        owner.vel = new Vec2(0, 0);
+        owner.externalForceUntil = matchTime + 1.55;
+      }
+      return;
     }
-  }
-  hit(owner, game, matchTime, damage) {
-    for (const ball of game.balls) {
-      if (ball.hp <= 0 || ball === owner || game.areAllies(ball, owner)) continue;
-      if (!circleHit(owner.pos, this.slashRadius, ball.pos, ball.radius)) continue;
-      ball.takeDamage(damage, game, owner, matchTime);
-      ball.vel = safeNormalize(Vec2.sub(ball.pos, owner.pos)).scale(1250);
-      ball.externalForceUntil = matchTime + 0.45;
+    if (this.state === 'aim') {
+      owner.vel = new Vec2(0, 0);
+      if (!this.lockedTarget || this.lockedTarget.hp <= 0) this.lockedTarget = game.nearestEnemy(owner);
+      if (matchTime >= this.aimStart + 1.0) {
+        this.lockedCenter = this.lockedTarget && this.lockedTarget.hp > 0 ? this.lockedTarget.pos.clone() : randomPointInRect(game.arena, BALL_RADIUS);
+        this.state = 'charge';
+        this.chargeStart = matchTime;
+      }
+      return;
+    }
+    if (this.state === 'charge') {
+      owner.vel = new Vec2(0, 0);
+      if (matchTime >= this.chargeStart + this.chargeDuration) {
+        const c = this.lockedCenter.clone();
+        c.x = clamp(c.x, game.arena.left + owner.radius, game.arena.right - owner.radius);
+        c.y = clamp(c.y, game.arena.top + owner.radius, game.arena.bottom - owner.radius);
+        owner.pos = c;
+        owner.externalForceUntil = matchTime + 0.25;
+        game.hazards.push(new SwordSaintStrikeHazardWeb(owner, c, this.rangeRadius, matchTime));
+        this.state = 'idle';
+        this.resumeMoveTime = matchTime + this.fullComboDuration;
+        this.resumeMoveDone = false;
+        this.nextCast = this.resumeMoveTime + this.cooldown;
+        this.lockedTarget = null;
+        this.lockedCenter = null;
+      }
     }
   }
   draw(owner, game, ctx) {
     ctx.save();
-    if (this.state === 'lock' || this.state === 'charge') {
-      ctx.strokeStyle = this.state === 'lock' ? COLORS.swordAura : COLORS.swordSilver; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.arc(this.lockCenter.x, this.lockCenter.y, this.slashRadius, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(this.lockCenter.x - 32, this.lockCenter.y - 32); ctx.lineTo(this.lockCenter.x + 32, this.lockCenter.y + 32); ctx.moveTo(this.lockCenter.x + 32, this.lockCenter.y - 32); ctx.lineTo(this.lockCenter.x - 32, this.lockCenter.y + 32); ctx.stroke();
-    } else if (this.state === 'slash') {
-      ctx.strokeStyle = COLORS.swordAura; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, this.slashRadius, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = COLORS.swordSilver; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(owner.pos.x - this.slashRadius, owner.pos.y + this.slashRadius * .35); ctx.lineTo(owner.pos.x + this.slashRadius, owner.pos.y - this.slashRadius * .35); ctx.stroke();
+    if (!this.isHidden(owner, owner.lastMatchTime || 0)) {
+      ctx.strokeStyle = COLORS.swordSilver; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(owner.pos.x + owner.radius + 8, owner.pos.y + owner.radius + 8); ctx.lineTo(owner.pos.x + owner.radius + 28, owner.pos.y - owner.radius - 12); ctx.stroke();
+      ctx.strokeStyle = COLORS.black; ctx.lineWidth = 1; ctx.stroke();
+    }
+    if (this.state === 'aim' && this.lockedTarget && this.lockedTarget.hp > 0) {
+      ctx.strokeStyle = COLORS.swordAura; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(owner.pos.x, owner.pos.y); ctx.lineTo(this.lockedTarget.pos.x, this.lockedTarget.pos.y); ctx.stroke();
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.lockedTarget.pos.x, this.lockedTarget.pos.y, this.lockedTarget.radius + 12, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = COLORS.white; ctx.beginPath(); ctx.arc(owner.pos.x, owner.pos.y, owner.radius + 14, 0, Math.PI * 2); ctx.stroke();
+    } else if (this.state === 'charge' && this.lockedCenter) {
+      ctx.strokeStyle = COLORS.swordAura; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(this.lockedCenter.x, this.lockedCenter.y, this.rangeRadius, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = COLORS.white; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(this.lockedCenter.x, this.lockedCenter.y, this.rangeRadius * 0.55, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = COLORS.swordSilver; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(this.lockedCenter.x, this.lockedCenter.y - 125); ctx.lineTo(this.lockedCenter.x, this.lockedCenter.y); ctx.stroke();
     }
     ctx.restore();
   }

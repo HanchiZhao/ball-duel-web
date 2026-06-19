@@ -36,11 +36,11 @@ import {
 
 export const ROLES = {
   normal: {
-    id: 'normal', name: 'Normal', zh: '普通球', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.cyan,
+    id: 'normal', name: 'Normal', zh: '普通球', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.magenta,
     desc: '普通身体碰撞造成 5 伤害。', createSkill: () => new NormalSkill()
   },
   hammer: {
-    id: 'hammer', name: 'Hammer', zh: '重锤', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.yellow,
+    id: 'hammer', name: 'Hammer', zh: '重锤', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.cyan,
     desc: '旋转重锤命中造成 8 伤害。', createSkill: () => new HammerSkill()
   },
   vampire: {
@@ -60,7 +60,7 @@ export const ROLES = {
     desc: '发射导弹，命中或撞墙后生成黑洞吸引并持续伤害敌人。', createSkill: () => new BlackHoleSkill()
   },
   fruitshooter: {
-    id: 'fruitshooter', name: 'FruitShooter', zh: '水果射手', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.appleRed,
+    id: 'fruitshooter', name: 'FruitShooter', zh: '水果射手', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.tangerineOrange,
     desc: '每轮向最近敌人连射 3 个随机水果。', createSkill: () => new FruitShooterSkill()
   },
   pengci: {
@@ -117,7 +117,7 @@ export const ROLES = {
     desc: '手掌朝向最近敌人，抓住后大力扔出。', createSkill: () => new HandSkill()
   },
   dragon: {
-    id: 'dragon', name: 'DragonHeir', zh: '龙的传人', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.red,
+    id: 'dragon', name: 'DragonHeir', zh: '龙的传人', hp: DEFAULT_HP, speed: BALL_SPEED, color: COLORS.yellow,
     desc: '预警轨道后召唤巨龙穿场，每次碰撞 5 伤害。', createSkill: () => new DragonHeirSkill()
   },
   jadefoot: {

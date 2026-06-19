@@ -1,7 +1,7 @@
 import { WIDTH, HEIGHT, ARENA_SIZE, BALL_RADIUS, COLORS, MAX_MATCH_TIME } from './config.js';
 import { Vec2, randomUnitVector, safeNormalize } from './vector.js';
 import { Ball } from './ball.js';
-import { FloatingText } from './effects.js';
+import { FloatingText, ParticleBurstEffect, PlusSparkEffect, PulseRingEffect, WallSparkEffect } from './effects.js';
 import { circleHit, avoidAxisAligned, drawLeftText } from './utils.js';
 import { ROLES } from './roleRegistry.js';
 
@@ -16,6 +16,8 @@ export class Game {
     this.hazards = [];
     this.spiderWebKeys = new Set();
     this.floatingTexts = [];
+    this.visualEffects = [];
+    this.lastSetup = null;
     this.running = false;
     this.paused = false;
     this.matchTime = 0;
@@ -32,7 +34,9 @@ export class Game {
   }
 
   startFromSetup(setup) {
+    const rememberedSetup = cloneSetup(setup);
     this.resetWorld();
+    this.lastSetup = rememberedSetup;
     const entries = [];
     if (setup.mode === 'teams') {
       setup.teams.forEach((team, tIndex) => {
@@ -48,7 +52,12 @@ export class Game {
     entries.forEach((entry, i) => {
       const role = ROLES[entry.roleId] || ROLES.normal;
       const ball = new Ball(role, spawnPoints[i], entry.label, entry.teamId);
-      ball.vel = avoidAxisAligned(randomUnitVector()).scale(ball.baseSpeed);
+      const center = new Vec2((this.arena.left + this.arena.right) / 2, (this.arena.top + this.arena.bottom) / 2);
+      const inward = safeNormalize(Vec2.sub(center, ball.pos));
+      const tangent = inward.perp().scale(i % 2 === 0 ? 1 : -1);
+      const startDir = avoidAxisAligned(Vec2.add(Vec2.add(Vec2.scale(inward, 0.85), Vec2.scale(tangent, 0.42)), Vec2.scale(randomUnitVector(), 0.15)));
+      ball.vel = startDir.scale(ball.baseSpeed);
+      ball.preCollisionVel = ball.vel.clone();
       this.balls.push(ball);
     });
 
@@ -67,6 +76,7 @@ export class Game {
     this.hazards = [];
     this.spiderWebKeys = new Set();
     this.floatingTexts = [];
+    this.visualEffects = [];
     this.teamColors.clear();
     this.running = false;
     this.paused = false;
@@ -75,6 +85,12 @@ export class Game {
     this.winnerText = '已重置。';
     this.emitStatus();
     this.draw();
+  }
+
+  restartLastSetup() {
+    if (!this.lastSetup) return false;
+    this.startFromSetup(cloneSetup(this.lastSetup));
+    return true;
   }
 
   spawnRole(roleId, pos, label, teamId = null, overrides = {}) {
@@ -94,7 +110,7 @@ export class Game {
 
   spawnPoints(n) {
     const center = new Vec2((this.arena.left + this.arena.right) / 2, (this.arena.top + this.arena.bottom) / 2);
-    const ring = ARENA_SIZE * 0.33;
+    const ring = ARENA_SIZE * 0.30;
     const pts = [];
     for (let i = 0; i < n; i++) {
       const a = -Math.PI / 2 + i * Math.PI * 2 / Math.max(1, n);
@@ -137,6 +153,7 @@ export class Game {
     for (const hazard of this.hazards) hazard.update(this, dt, this.matchTime);
     this.hazards = this.hazards.filter(h => h.alive);
 
+    this.visualEffects = this.visualEffects.filter(effect => effect.update(dt));
     this.floatingTexts = this.floatingTexts.filter(t => t.update(dt));
     this.checkWinner();
   }
@@ -147,9 +164,12 @@ export class Game {
         const a = this.balls[i];
         const b = this.balls[j];
         if (a.hp <= 0 || b.hp <= 0) continue;
+        if (a.heldBy || b.heldBy) continue;
+        if (a.skill.isUntargetable(a, this.matchTime) || b.skill.isUntargetable(b, this.matchTime)) continue;
         if (a.skill.ignoresPhysicalCollision(a, b, this.matchTime) || b.skill.ignoresPhysicalCollision(b, a, this.matchTime)) continue;
         if (!circleHit(a.pos, a.radius, b.pos, b.radius)) continue;
-        this.resolveOverlap(a, b);
+        const collidedHeadOn = this.resolveOverlap(a, b);
+        if (!collidedHeadOn) continue;
         if (this.areAllies(a, b)) continue;
         a.skill.onBodyCollision(a, b, this, this.matchTime);
         b.skill.onBodyCollision(b, a, this, this.matchTime);
@@ -162,13 +182,22 @@ export class Game {
     const dist = Math.max(0.001, delta.length());
     const minDist = a.radius + b.radius;
     const overlap = minDist - dist;
-    if (overlap <= 0) return;
+    if (overlap <= 0) return false;
     const normal = delta.scale(1 / dist);
     a.pos.add(Vec2.scale(normal, -overlap / 2));
     b.pos.add(Vec2.scale(normal, overlap / 2));
-    const va = a.vel.clone();
-    a.vel = b.vel.clone();
-    b.vel = va;
+    const relative = Vec2.sub(b.vel, a.vel);
+    const along = relative.dot(normal);
+    if (along >= 0) return false;
+    a.preCollisionVel = a.vel.clone();
+    b.preCollisionVel = b.vel.clone();
+    const vaN = a.vel.dot(normal);
+    const vbN = b.vel.dot(normal);
+    a.vel.add(Vec2.scale(normal, vbN - vaN));
+    b.vel.add(Vec2.scale(normal, vaN - vbN));
+    if (this.matchTime >= a.externalForceUntil && a.vel.length() > 0) a.vel = safeNormalize(a.vel).scale(a.currentSpeed(this.matchTime));
+    if (this.matchTime >= b.externalForceUntil && b.vel.length() > 0) b.vel = safeNormalize(b.vel).scale(b.currentSpeed(this.matchTime));
+    return true;
   }
 
   areAllies(a, b) {
@@ -192,6 +221,25 @@ export class Game {
 
   addFloatingText(pos, text, kind) {
     this.floatingTexts.push(new FloatingText(pos, text, kind));
+  }
+
+  addEffect(effect) {
+    if (effect) this.visualEffects.push(effect);
+  }
+
+  addImpactEffect(pos, intensity = 1, color = COLORS.damage) {
+    const count = Math.max(8, Math.min(18, Math.round(7 + intensity * 0.35)));
+    this.addEffect(new PulseRingEffect(pos, { color: 'rgba(255,95,95,.9)', startRadius: 8, endRadius: 28 + intensity * 0.6, life: 0.34, lineWidth: 3 }));
+    this.addEffect(new ParticleBurstEffect(pos, { colors: [COLORS.damage, COLORS.orange, color], count, speedMin: 52, speedMax: 150, life: 0.46 }));
+  }
+
+  addHealEffect(pos, intensity = 1) {
+    this.addEffect(new PulseRingEffect(pos, { color: 'rgba(112,255,150,.95)', startRadius: 10, endRadius: 36 + intensity * 0.7, life: 0.52, lineWidth: 3 }));
+    this.addEffect(new PlusSparkEffect(pos, { count: Math.max(5, Math.min(12, 5 + Math.round(intensity / 2))) }));
+  }
+
+  addWallSpark(pos, wall, color = COLORS.cyan) {
+    // Python-sync mode: wall bounces jitter velocity but do not spawn extra spark particles.
   }
 
   aliveTeamGroups() {
@@ -233,20 +281,60 @@ export class Game {
     this.drawBackground(ctx);
     for (const hazard of this.hazards) hazard.draw(ctx);
     for (const projectile of this.projectiles) projectile.draw(ctx);
-    for (const ball of this.balls) ball.draw(ctx, this);
+    for (const effect of this.visualEffects) effect.draw(ctx);
+    for (const ball of this.balls) ball.drawBodyLayer(ctx, this);
+    for (const ball of this.balls) ball.drawSkillLayer(ctx, this);
+    for (const ball of this.balls) ball.drawOverlayLayer(ctx, this);
+    for (const ball of this.balls) ball.drawHpLayer(ctx, this);
     for (const text of this.floatingTexts) text.draw(ctx);
     this.drawSidebar(ctx);
   }
 
   drawBackground(ctx) {
     ctx.save();
-    ctx.fillStyle = '#151824';
+    const bg = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+    bg.addColorStop(0, '#111421');
+    bg.addColorStop(0.55, '#151824');
+    bg.addColorStop(1, '#0d1018');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
-    ctx.fillStyle = COLORS.arena;
-    ctx.fillRect(this.arena.left, this.arena.top, this.arena.width, this.arena.height);
-    ctx.lineWidth = 4;
+
+    const a = this.arena;
+    const arenaGrad = ctx.createRadialGradient((a.left + a.right) / 2, (a.top + a.bottom) / 2, 20, (a.left + a.right) / 2, (a.top + a.bottom) / 2, ARENA_SIZE * 0.72);
+    arenaGrad.addColorStop(0, '#282e40');
+    arenaGrad.addColorStop(1, '#1e2332');
+    ctx.fillStyle = arenaGrad;
+    ctx.fillRect(a.left, a.top, a.width, a.height);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(a.left, a.top, a.width, a.height);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,.035)';
+    ctx.lineWidth = 1;
+    for (let x = a.left + 23; x < a.right; x += 46) {
+      ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom); ctx.stroke();
+    }
+    for (let y = a.top + 23; y < a.bottom; y += 46) {
+      ctx.beginPath(); ctx.moveTo(a.left, y); ctx.lineTo(a.right, y); ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.lineWidth = 5;
     ctx.strokeStyle = COLORS.arenaLine;
-    ctx.strokeRect(this.arena.left, this.arena.top, this.arena.width, this.arena.height);
+    ctx.strokeRect(a.left, a.top, a.width, a.height);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(116,214,255,.55)';
+    ctx.strokeRect(a.left + 6, a.top + 6, a.width - 12, a.height - 12);
+
+    const corner = 34;
+    ctx.strokeStyle = 'rgba(255,215,111,.75)';
+    ctx.lineWidth = 3;
+    for (const [x, y, sx, sy] of [[a.left,a.top,1,1],[a.right,a.top,-1,1],[a.left,a.bottom,1,-1],[a.right,a.bottom,-1,-1]]) {
+      ctx.beginPath();
+      ctx.moveTo(x, y + sy * corner); ctx.lineTo(x, y); ctx.lineTo(x + sx * corner, y);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -277,4 +365,8 @@ export class Game {
       paused: this.paused
     });
   }
+}
+
+function cloneSetup(setup) {
+  return JSON.parse(JSON.stringify(setup));
 }

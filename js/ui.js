@@ -15,6 +15,10 @@ export class UIController {
     this.startBtn = el('startBtn');
     this.pauseBtn = el('pauseBtn');
     this.resetBtn = el('resetBtn');
+    this.randomBtn = el('randomBtn');
+    this.quickStartBtn = el('quickStartBtn');
+    this.sameBtn = el('sameBtn');
+    this.roleCountText = el('roleCountText');
     this.winnerText = el('winnerText');
     this.timeText = el('timeText');
     this.engineStatus = el('engineStatus');
@@ -22,12 +26,16 @@ export class UIController {
   }
 
   init() {
+    this.roleCountText.textContent = `${this.roles.length} roles`;
     this.modeSelect.addEventListener('change', () => this.renderMode());
-    this.ffaCount.addEventListener('change', () => this.renderFfaRoles());
-    this.teamCount.addEventListener('change', () => this.renderTeamEditors());
+    this.ffaCount.addEventListener('change', () => this.renderFfaRoles({ preserve: true }));
+    this.teamCount.addEventListener('change', () => this.renderTeamEditors({ preserve: true }));
     this.startBtn.addEventListener('click', () => this.startGame());
     this.pauseBtn.addEventListener('click', () => this.game.togglePause());
     this.resetBtn.addEventListener('click', () => this.game.resetWorld());
+    this.randomBtn.addEventListener('click', () => this.randomizeCurrentSelections());
+    this.quickStartBtn.addEventListener('click', () => this.quickStart());
+    this.sameBtn.addEventListener('click', () => this.restartSameLineup());
     this.renderMode();
     this.game.draw();
   }
@@ -36,41 +44,85 @@ export class UIController {
     const teams = this.modeSelect.value === 'teams';
     this.ffaPanel.classList.toggle('hidden', teams);
     this.teamPanel.classList.toggle('hidden', !teams);
-    if (teams) this.renderTeamEditors();
-    else this.renderFfaRoles();
+    if (teams) this.renderTeamEditors({ preserve: true });
+    else this.renderFfaRoles({ preserve: true });
   }
 
-  roleSelect(name, selectedIndex = 0) {
+  roleById(id) {
+    return this.roles.find(r => r.id === id) || this.roles[0];
+  }
+
+  randomRoleId() {
+    return this.roles[Math.floor(Math.random() * this.roles.length)].id;
+  }
+
+  roleSelect(name, selectedIndex = 0, onChange = null) {
     const select = document.createElement('select');
     select.name = name;
     this.roles.forEach((role, idx) => {
       const opt = document.createElement('option');
       opt.value = role.id;
-      opt.textContent = `${role.zh} / ${role.name} — ${role.desc}`;
+      opt.textContent = `${role.zh} / ${role.name}`;
       if (idx === selectedIndex) opt.selected = true;
       select.appendChild(opt);
     });
+    if (onChange) select.addEventListener('change', () => onChange(select.value));
     return select;
   }
 
-  renderFfaRoles() {
+  createRoleRow(labelText, name, selectedIndex = 0) {
+    const row = document.createElement('div');
+    row.className = 'role-row';
+
+    const label = document.createElement('div');
+    label.className = 'role-label';
+    label.textContent = labelText;
+    row.appendChild(label);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'role-select-wrap';
+
+    const preview = document.createElement('div');
+    preview.className = 'role-preview';
+    const dot = document.createElement('span');
+    dot.className = 'role-dot';
+    const desc = document.createElement('span');
+    preview.appendChild(dot);
+    preview.appendChild(desc);
+
+    const updatePreview = (roleId) => {
+      const role = this.roleById(roleId);
+      dot.style.background = role.color;
+      dot.style.color = role.color;
+      desc.textContent = `${role.zh}：${role.desc}`;
+    };
+
+    const select = this.roleSelect(name, selectedIndex, updatePreview);
+    updatePreview(select.value);
+    wrap.appendChild(select);
+    wrap.appendChild(preview);
+    row.appendChild(wrap);
+    return row;
+  }
+
+  renderFfaRoles({ preserve = false } = {}) {
+    const oldValues = preserve ? [...this.ffaRoles.querySelectorAll('select')].map(s => s.value) : [];
     const count = clampInt(this.ffaCount.value, 2, 12);
     this.ffaCount.value = count;
     this.ffaRoles.innerHTML = '';
     for (let i = 0; i < count; i++) {
-      const row = document.createElement('div');
-      row.className = 'role-row';
-      const label = document.createElement('label');
-      const span = document.createElement('span');
-      span.textContent = `P${i + 1}`;
-      label.appendChild(span);
-      label.appendChild(this.roleSelect(`ffa-${i}`, i % this.roles.length));
-      row.appendChild(label);
-      this.ffaRoles.appendChild(row);
+      const old = oldValues[i];
+      const selectedIndex = old ? Math.max(0, this.roles.findIndex(r => r.id === old)) : i % this.roles.length;
+      this.ffaRoles.appendChild(this.createRoleRow(`P${i + 1}`, `ffa-${i}`, selectedIndex));
     }
   }
 
-  renderTeamEditors() {
+  renderTeamEditors({ preserve = false } = {}) {
+    const oldTeams = preserve ? [...this.teamEditors.querySelectorAll('.team-box')].map(box => ({
+      count: box.querySelector('input')?.value,
+      roles: [...box.querySelectorAll('select')].map(s => s.value)
+    })) : [];
+
     const teamCount = clampInt(this.teamCount.value, 2, 6);
     this.teamCount.value = teamCount;
     this.teamEditors.innerHTML = '';
@@ -86,7 +138,7 @@ export class UIController {
       countInput.type = 'number';
       countInput.min = '1';
       countInput.max = '8';
-      countInput.value = '2';
+      countInput.value = oldTeams[t]?.count || '2';
       countInput.dataset.teamCount = String(t);
       title.appendChild(name);
       title.appendChild(countInput);
@@ -97,24 +149,46 @@ export class UIController {
       box.appendChild(rolesWrap);
 
       const renderMembers = () => {
+        const oldRoles = [...rolesWrap.querySelectorAll('select')].map(s => s.value);
+        const sourceRoles = oldRoles.length ? oldRoles : (oldTeams[t]?.roles || []);
         const count = clampInt(countInput.value, 1, 8);
         countInput.value = count;
         rolesWrap.innerHTML = '';
         for (let p = 0; p < count; p++) {
-          const row = document.createElement('div');
-          row.className = 'role-row';
-          const label = document.createElement('label');
-          const span = document.createElement('span');
-          span.textContent = `T${t + 1}P${p + 1}`;
-          label.appendChild(span);
-          label.appendChild(this.roleSelect(`team-${t}-${p}`, (t + p) % this.roles.length));
-          row.appendChild(label);
-          rolesWrap.appendChild(row);
+          const old = sourceRoles[p];
+          const selectedIndex = old ? Math.max(0, this.roles.findIndex(r => r.id === old)) : (t + p) % this.roles.length;
+          rolesWrap.appendChild(this.createRoleRow(`T${t + 1}P${p + 1}`, `team-${t}-${p}`, selectedIndex));
         }
       };
       countInput.addEventListener('change', renderMembers);
       renderMembers();
       this.teamEditors.appendChild(box);
+    }
+  }
+
+  randomizeCurrentSelections() {
+    const selects = this.modeSelect.value === 'teams'
+      ? [...this.teamEditors.querySelectorAll('select')]
+      : [...this.ffaRoles.querySelectorAll('select')];
+    for (const select of selects) {
+      select.value = this.randomRoleId();
+      select.dispatchEvent(new Event('change'));
+    }
+  }
+
+  quickStart() {
+    if (this.modeSelect.value === 'ffa') {
+      if (!this.ffaRoles.children.length) this.renderFfaRoles();
+    } else {
+      if (!this.teamEditors.children.length) this.renderTeamEditors();
+    }
+    this.randomizeCurrentSelections();
+    this.startGame();
+  }
+
+  restartSameLineup() {
+    if (!this.game.restartLastSetup()) {
+      this.winnerText.textContent = '还没有上一局阵容：请先开始一局，或使用一键开始。';
     }
   }
 
